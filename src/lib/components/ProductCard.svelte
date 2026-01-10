@@ -1,47 +1,55 @@
 <script>
 	/**
-	 * ProductCard.svelte
+	 * ProductCard.svelte (final)
 	 * =========================================================
 	 * Zielmodell:
-	 * - Ohne Stückgröße (z.B. Apfel): piecesRemaining (Stück)
+	 * - Ohne Stückgröße (z.B. Apfel): variant.piecesRemaining (Stück)
 	 * - Mit Stückgröße (z.B. Joghurt 250ml, Nudeln 1kg):
-	 *   remainingAmount (g/ml) und Stück-Anzeige = ceil(remainingAmount / packSize)
-	 * =========================================================
+	 *   variant.remainingAmount (g/ml) und Stück-Anzeige = ceil(remainingAmount / packSize)
+	 *
+	 * UI:
+	 * - Header zeigt: "X Stück × packSizeUnit" oder "X Stück"
+	 * - In Variantenzeile: "Bestand: ...", NICHT nochmal "X Stück × ..."
+	 * - Zwischen - und +: nur Zahl (Option A)
+	 * - Dispose: 🗑️
+	 * - Custom: Label "Menge verbrauchen" + Input + OK (nur bei Pack-Produkten)
+	 * - Footer Actions untereinander:
+	 *   - Alle aufgebraucht
+	 *   - Bearbeiten
+	 *   - Alle entsorgt 🗑️
 	 */
 
 	export let id;
 
-	export let name = "Produktname";
-	export let icon = "🥕";
+	export let name = 'Produktname';
+	export let icon = '🥕';
 
-	// totalQuantity kommt vom Server: Summe der Stück/Packungen (berechnet)
+	// totalQuantity kommt vom Server: Summe Stück (berechnet)
 	export let totalQuantity = 0;
 
 	// Preis pro Stück/Packung
 	export let pricePerUnit = 0;
-	export let currency = "CHF";
+	export let currency = 'CHF';
 
 	export let variants = [];
-	export let storageLocation = "Kühlschrank";
+	export let storageLocation = 'Kühlschrank';
 
 	// Pack-Infos: null, wenn echtes Stück-Produkt
 	export let packUnit = null; // 'g' | 'ml' | null
 	export let packSize = null; // number | null
 
 	$: isPackProduct = Boolean(packUnit && packSize && packSize > 0);
-
 	$: totalPrice = (pricePerUnit || 0) * (totalQuantity || 0);
 
 	function formatDate(dateStr) {
-		if (!dateStr) return "-";
-		const parts = dateStr.split("-");
+		if (!dateStr) return '-';
+		const parts = dateStr.split('-');
 		if (parts.length !== 3) return dateStr;
 		const [year, month, day] = parts;
 		return `${day}.${month}.${year}`;
 	}
 
 	function piecesFromRemaining(remainingAmount) {
-		// Y Stück = ceil(remainingAmount / packSize)
 		if (!isPackProduct) return 0;
 		const amt = Number(remainingAmount || 0);
 		if (amt <= 0) return 0;
@@ -55,8 +63,6 @@
 			<div class="icon">{icon}</div>
 			<div>
 				<h2>{name}</h2>
-
-				<!-- Header-Bestand -->
 				<p class="total">
 					{#if isPackProduct}
 						{totalQuantity} Stück × {packSize}{packUnit}
@@ -68,40 +74,32 @@
 		</div>
 	</header>
 
-	<!-- Varianten -->
 	<section class="variants">
-		{#each variants as variant, index (variant.expirationDate + "-" + index)}
+		{#each variants as variant, index (variant.expirationDate + '-' + index)}
 			<div class="variant-row" data-status={variant.status}>
-				<!-- Meta: Ablauf + Bestandstext -->
 				<div class="meta">
-					<p class="label">
-						Ablauf: {formatDate(variant.expirationDate)}
-					</p>
+					<p class="label">Ablauf: {formatDate(variant.expirationDate)}</p>
 
 					{#if isPackProduct}
-						<p class="sub">
-							Bestand: {variant.remainingAmount}{packUnit}
-						</p>
+						<p class="sub">Bestand: {variant.remainingAmount}{packUnit}</p>
 					{:else}
-						<p class="sub">
-							Bestand: {variant.piecesRemaining} Stück
-						</p>
+						<p class="sub">Bestand: {variant.piecesRemaining} Stück</p>
 					{/if}
 				</div>
 
-				<!-- Controls: - Zahl + und Mülleimer -->
 				<div class="controls">
 					<div class="step">
 						<button
 							type="submit"
 							name="intent"
 							value={`dec:${index}`}
-							title="1 Stück entfernen"
+							title="1 Stück weniger (aufgebraucht)"
+							aria-label="1 Stück weniger (aufgebraucht)"
 						>
 							-
 						</button>
 
-						<span class="qty">
+						<span class="qty" title="Aktueller Bestand (als Stück)">
 							{#if isPackProduct}
 								{piecesFromRemaining(variant.remainingAmount)}
 							{:else}
@@ -113,7 +111,8 @@
 							type="submit"
 							name="intent"
 							value={`inc:${index}`}
-							title="1 Stück hinzufügen"
+							title="1 Stück hinzugefügt (z.B. neu gekauft)"
+							aria-label="1 Stück hinzugefügt"
 						>
 							+
 						</button>
@@ -124,29 +123,34 @@
 						name="intent"
 						value={`dispose:${index}`}
 						class="warn"
-						title="Variante entsorgen"
+						title="Entsorgen (landet im Müll & zählt zur Statistik)"
+						aria-label="Entsorgen"
 					>
 						🗑️
 					</button>
 				</div>
 
-				<!-- Custom-Feld: nur bei Pack-Produkten -->
 				{#if isPackProduct}
 					<div class="custom">
+						<span class="custom-label">Menge verbrauchen</span>
+
 						<input
 							type="number"
 							name={`customAmount:${index}`}
 							min="0"
 							step="1"
 							placeholder={`z.B. 500 ${packUnit}`}
-							title="Menge manuell abziehen"
+							title={`Trage ein, wie viel du verbraucht hast (in ${packUnit}).`}
+							aria-label={`Menge verbrauchen in ${packUnit}`}
 						/>
+
 						<button
 							type="submit"
 							name="intent"
 							value={`decCustom:${index}`}
 							class="small"
-							title="Manuelle Menge abziehen"
+							title="Diese Menge vom Bestand abziehen"
+							aria-label="Menge vom Bestand abziehen"
 						>
 							OK
 						</button>
@@ -157,41 +161,49 @@
 	</section>
 
 	<footer class="card-footer">
-		<div class="info">
-			<p class="storage">📍 {storageLocation}</p>
-			<p class="price">
-				{pricePerUnit.toFixed(2)}
-				{currency} / Stück<br />
-				<span class="total-price"
-					>Gesamt: {totalPrice.toFixed(2)} {currency}</span
-				>
-			</p>
-		</div>
+	<div class="info">
+		<p class="storage">📍 {storageLocation}</p>
 
-		<div class="actions">
-			<button
-				type="submit"
-				name="intent"
-				value="delete"
-				class="secondary"
-			>
-				Löschen
-			</button>
+		<p class="unit-price">
+			💸 {pricePerUnit.toFixed(2)} {currency} / Stück
+		</p>
 
-			<a class="primary link-button" href={`/inventar/${id}/bearbeiten`}>
-				Bearbeiten
-			</a>
+		<p class="total-price">
+			🧾 Gesamt: {totalPrice.toFixed(2)} {currency}
+		</p>
+	</div>
 
-			<button
-				type="submit"
-				name="intent"
-				value="disposeAll"
-				class="danger"
-			>
-				Alles entsorgen
-			</button>
-		</div>
-	</footer>
+	<div class="actions stacked">
+		<button
+			type="submit"
+			name="intent"
+			value="delete"
+			class="secondary"
+			title="Markiert alles als aufgebraucht (wird als Verbrauch gezählt)"
+		>
+			Alle aufgebraucht
+		</button>
+
+		<a
+			class="primary link-button"
+			href={`/inventar/${id}/bearbeiten`}
+			title="Produktdetails bearbeiten"
+		>
+			Bearbeiten
+		</a>
+
+		<button
+			type="submit"
+			name="intent"
+			value="disposeAll"
+			class="danger"
+			title="Markiert alles als entsorgt (landet in der Waste-Statistik)"
+		>
+			Alle entsorgt 🗑️
+		</button>
+	</div>
+</footer>
+
 </article>
 
 <style>
@@ -258,11 +270,11 @@
 		font-size: 0.9rem;
 	}
 
-	.variant-row[data-status="soon"] {
+	.variant-row[data-status='soon'] {
 		border: 1px solid #f97316;
 	}
 
-	.variant-row[data-status="expired"] {
+	.variant-row[data-status='expired'] {
 		border: 1px solid #ef4444;
 		background: #fef2f2;
 	}
@@ -310,12 +322,13 @@
 		font-size: 1rem;
 	}
 
-.qty {
-	min-width: 2.5rem;
-	text-align: center;
-	font-weight: 600;
-	font-size: 0.95rem;
-}
+	/* Option A: nur Zahl */
+	.qty {
+		min-width: 2.5rem;
+		text-align: center;
+		font-weight: 650;
+		color: #111827;
+	}
 
 	.warn {
 		border: none;
@@ -330,11 +343,17 @@
 		justify-content: center;
 	}
 
+	/* ===== Custom ===== */
 	.custom {
-		display: flex;
-		justify-content: flex-end;
+		display: grid;
+		grid-template-columns: 1fr auto auto;
 		align-items: center;
-		gap: 0.35rem;
+		gap: 0.5rem;
+	}
+
+	.custom-label {
+		font-size: 0.8rem;
+		color: #6b7280;
 	}
 
 	.custom input {
@@ -364,17 +383,113 @@
 		font-size: 0.9rem;
 	}
 
-	.info {
-		color: #4b5563;
+/* ===== Footer Info (links unten) ===== */
+
+.info {
+	display: flex;
+	flex-direction: column;
+	gap: 0.75rem; /* mehr Luft zwischen Lagerort & Preisblock */
+	color: #4b5563;
+}
+
+/* ===== Footer ===== */
+.card-footer {
+	display: grid;
+	grid-template-columns: 1fr 170px; /* rechts Buttons fix, links nutzt Platz */
+	gap: 1rem;
+	align-items: start;
+
+	border-top: 1px solid #e5e7eb;
+	padding-top: 0.85rem;
+}
+
+.info {
+	display: flex;
+	flex-direction: column;
+	gap: 0.45rem;
+	color: #4b5563;
+}
+
+/* Zeilen kompakt aber klar */
+.storage,
+.unit-price,
+.total-price {
+	margin: 0;
+	line-height: 1.25;
+}
+
+.storage {
+	font-size: 0.9rem;
+}
+
+.unit-price {
+	font-size: 0.85rem;
+	color: #6b7280;
+}
+
+/* Gesamtpreis bewusst stärker */
+.total-price {
+	font-weight: 700;
+	font-size: 0.95rem;
+	color: #111827;
+}
+
+/* Actions rechts als “Panel” */
+.actions.stacked {
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+	align-items: stretch;
+	justify-content: flex-start;
+}
+
+.actions.stacked button,
+.actions.stacked .link-button {
+	width: 100%;
+	text-align: center;
+}
+
+/* Mobile: untereinander */
+@media (max-width: 768px) {
+	.card-footer {
+		grid-template-columns: 1fr;
 	}
+}
+
+
+
+/* Lagerort */
+.storage {
+	margin: 0;
+	font-size: 0.9rem;
+}
+
+/* Preis pro Stück */
+.unit-price {
+	margin: 0;
+	font-size: 0.85rem;
+	color: #6b7280;
+}
+
+/* Gesamtpreis stärker hervorheben */
+.total-price {
+	margin: 0;
+	font-weight: 600;
+	font-size: 0.95rem;
+	color: #111827;
+}
+
+.card-footer {
+	border-top: 1px solid #e5e7eb;
+	padding-top: 0.75rem;
+}
+
 
 	.storage {
 		margin: 0 0 0.25rem 0;
 	}
 
-	.price {
-		margin: 0;
-	}
+	
 
 	.total-price {
 		font-weight: 600;
@@ -395,6 +510,19 @@
 		font-size: 0.85rem;
 		cursor: pointer;
 		text-decoration: none;
+	}
+
+	.actions.stacked {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		align-items: stretch;
+	}
+
+	.actions.stacked button,
+	.actions.stacked .link-button {
+		width: 100%;
+		text-align: center;
 	}
 
 	.secondary {
@@ -435,7 +563,7 @@
 		}
 
 		.custom {
-			flex-wrap: wrap;
+			grid-template-columns: 1fr 1fr auto;
 		}
 	}
 </style>
