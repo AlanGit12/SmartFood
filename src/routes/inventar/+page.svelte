@@ -1,14 +1,14 @@
 <script>
-	import ProductCard from '$lib/components/ProductCard.svelte';
-	import SummaryCard from '$lib/components/SummaryCard.svelte';
+	import ProductCard from "$lib/components/ProductCard.svelte";
+	import SummaryCard from "$lib/components/SummaryCard.svelte";
 
 	export let data;
 	const { products } = data;
 
-	let searchTerm = '';
-	let storageFilter = 'all';
-	let priceFilter = 'all';
-	let expiryFilter = 'all';
+	let searchTerm = "";
+	let storageFilter = "all";
+	let priceFilter = "all";
+	let expiryFilter = "all";
 	let groupByLocation = false;
 
 	function productTotalValue(p) {
@@ -17,7 +17,7 @@
 
 	function parseDate(dateStr) {
 		if (!dateStr) return null;
-		const parts = dateStr.split('-');
+		const parts = dateStr.split("-");
 		if (parts.length !== 3) return null;
 		const [y, m, d] = parts.map(Number);
 		return new Date(y, m - 1, d);
@@ -34,15 +34,15 @@
 
 	function matchesPrice(p) {
 		const value = productTotalValue(p);
-		if (priceFilter === 'all') return true;
-		if (priceFilter === 'low') return value < 5; // < 5 CHF
-		if (priceFilter === 'mid') return value >= 5 && value <= 20; // 5–20 CHF
-		if (priceFilter === 'high') return value > 20; // > 20 CHF
+		if (priceFilter === "all") return true;
+		if (priceFilter === "low") return value < 5; // < 5 CHF
+		if (priceFilter === "mid") return value >= 5 && value <= 20; // 5–20 CHF
+		if (priceFilter === "high") return value > 20; // > 20 CHF
 		return true;
 	}
 
 	function matchesExpiry(p) {
-		if (expiryFilter === 'all') return true;
+		if (expiryFilter === "all") return true;
 
 		const earliest = getEarliestExpiration(p);
 		if (!earliest) return true;
@@ -52,9 +52,9 @@
 
 		const diffDays = (earliest - today) / (1000 * 60 * 60 * 24);
 
-		if (expiryFilter === 'expired') return diffDays < 0;
-		if (expiryFilter === 'soon') return diffDays >= 0 && diffDays <= 3; // nächste 3 Tage
-		if (expiryFilter === 'later') return diffDays > 3;
+		if (expiryFilter === "expired") return diffDays < 0;
+		if (expiryFilter === "soon") return diffDays >= 0 && diffDays <= 3; // nächste 3 Tage
+		if (expiryFilter === "later") return diffDays > 3;
 		return true;
 	}
 
@@ -65,7 +65,7 @@
 			product.name.toLowerCase().includes(searchTerm.toLowerCase());
 
 		const matchesStorage =
-			storageFilter === 'all' ||
+			storageFilter === "all" ||
 			product.storageLocation === storageFilter;
 
 		return (
@@ -83,31 +83,31 @@
 		(sum, product) =>
 			sum +
 			product.variants
-				.filter((v) => v.status === 'soon')
+				.filter((v) => v.status === "soon")
 				.reduce((inner, v) => inner + v.quantity, 0),
-		0
+		0,
 	);
 
 	$: totalValue = filteredProducts.reduce(
 		(sum, product) => sum + productTotalValue(product),
-		0
+		0,
 	);
 
 	// Gruppierung nach Ort
-	const storageOrder = ['Kühlschrank', 'Vorratsschrank', 'Tiefkühler'];
+	const storageOrder = ["Kühlschrank", "Vorratsschrank", "Tiefkühler"];
 
 	$: groupedProducts = (() => {
 		const map = new Map();
 
 		for (const p of filteredProducts) {
-			const loc = p.storageLocation || 'Sonstiger Ort';
+			const loc = p.storageLocation || "Sonstiger Ort";
 			if (!map.has(loc)) map.set(loc, []);
 			map.get(loc).push(p);
 		}
 
 		const entries = Array.from(map.entries()).map(([location, items]) => ({
 			location,
-			products: items
+			products: items,
 		}));
 
 		entries.sort((a, b) => {
@@ -218,18 +218,22 @@
 			<section class="grid">
 				{#each group.products as product (product.id)}
 					<form method="POST" class="card-form">
-						<input type="hidden" name="productId" value={product.id} />
+						<input
+							type="hidden"
+							name="productId"
+							value={product.id}
+						/>
 
 						<ProductCard
 							id={product.id}
 							name={product.name}
 							icon={product.icon}
 							totalQuantity={product.totalQuantity}
-							unit={product.unit}
-							amountPerUnit={product.amountPerUnit}
 							variants={product.variants}
 							storageLocation={product.storageLocation}
 							pricePerUnit={product.pricePerUnit}
+							packUnit={product.packUnit}
+							packSize={product.packSize}
 						/>
 					</form>
 				{/each}
@@ -252,11 +256,11 @@
 						name={product.name}
 						icon={product.icon}
 						totalQuantity={product.totalQuantity}
-						unit={product.unit}
-						amountPerUnit={product.amountPerUnit}
 						variants={product.variants}
 						storageLocation={product.storageLocation}
 						pricePerUnit={product.pricePerUnit}
+						packUnit={product.packUnit}
+						packSize={product.packSize}
 					/>
 				</form>
 			{/each}
@@ -333,7 +337,10 @@
 		font-weight: 500;
 		font-size: 0.95rem;
 		box-shadow: 0 1px 4px rgba(22, 163, 74, 0.35);
-		transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
+		transition:
+			background 0.15s,
+			transform 0.1s,
+			box-shadow 0.15s;
 	}
 
 	.add-button span {

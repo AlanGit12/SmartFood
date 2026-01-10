@@ -1,26 +1,51 @@
 <script>
-	// ID für Bearbeiten-Link (wird von außen übergeben)
+	/**
+	 * ProductCard.svelte
+	 * =========================================================
+	 * Zielmodell:
+	 * - Ohne Stückgröße (z.B. Apfel): piecesRemaining (Stück)
+	 * - Mit Stückgröße (z.B. Joghurt 250ml, Nudeln 1kg):
+	 *   remainingAmount (g/ml) und Stück-Anzeige = ceil(remainingAmount / packSize)
+	 * =========================================================
+	 */
+
 	export let id;
 
-	export let name = 'Produktname';
-	export let icon = '🥕';
+	export let name = "Produktname";
+	export let icon = "🥕";
+
+	// totalQuantity kommt vom Server: Summe der Stück/Packungen (berechnet)
 	export let totalQuantity = 0;
-	export let unit = 'Stück';
-	export let amountPerUnit = null;
-	export let variants = [];
-	export let storageLocation = 'Kühlschrank';
+
+	// Preis pro Stück/Packung
 	export let pricePerUnit = 0;
-	export let currency = 'CHF';
+	export let currency = "CHF";
 
-	$: totalPrice = pricePerUnit * totalQuantity;
+	export let variants = [];
+	export let storageLocation = "Kühlschrank";
 
-	// Datum von YYYY-MM-DD → DD.MM.YYYY
+	// Pack-Infos: null, wenn echtes Stück-Produkt
+	export let packUnit = null; // 'g' | 'ml' | null
+	export let packSize = null; // number | null
+
+	$: isPackProduct = Boolean(packUnit && packSize && packSize > 0);
+
+	$: totalPrice = (pricePerUnit || 0) * (totalQuantity || 0);
+
 	function formatDate(dateStr) {
-		if (!dateStr) return '-';
-		const parts = dateStr.split('-');
+		if (!dateStr) return "-";
+		const parts = dateStr.split("-");
 		if (parts.length !== 3) return dateStr;
 		const [year, month, day] = parts;
 		return `${day}.${month}.${year}`;
+	}
+
+	function piecesFromRemaining(remainingAmount) {
+		// Y Stück = ceil(remainingAmount / packSize)
+		if (!isPackProduct) return 0;
+		const amt = Number(remainingAmount || 0);
+		if (amt <= 0) return 0;
+		return Math.ceil(amt / packSize);
 	}
 </script>
 
@@ -30,63 +55,103 @@
 			<div class="icon">{icon}</div>
 			<div>
 				<h2>{name}</h2>
+
+				<!-- Header-Bestand -->
 				<p class="total">
-					{#if amountPerUnit}
-						{totalQuantity} × {amountPerUnit} {unit}
+					{#if isPackProduct}
+						{totalQuantity} Stück × {packSize}{packUnit}
 					{:else}
-						{totalQuantity} {unit}
+						{totalQuantity} Stück
 					{/if}
 				</p>
 			</div>
 		</div>
 	</header>
 
+	<!-- Varianten -->
 	<section class="variants">
-		{#each variants as variant, index (variant.expirationDate + '-' + index)}
+		{#each variants as variant, index (variant.expirationDate + "-" + index)}
 			<div class="variant-row" data-status={variant.status}>
-				<div class="variant-info">
-					<p class="label">Ablauf: {formatDate(variant.expirationDate)}</p>
+				<!-- Meta: Ablauf + Bestandstext -->
+				<div class="meta">
+					<p class="label">
+						Ablauf: {formatDate(variant.expirationDate)}
+					</p>
+
+					{#if isPackProduct}
+						<p class="sub">
+							Bestand: {variant.remainingAmount}{packUnit}
+						</p>
+					{:else}
+						<p class="sub">
+							Bestand: {variant.piecesRemaining} Stück
+						</p>
+					{/if}
 				</div>
 
-				<div class="variant-quantity">
-					<button
-						type="submit"
-						name="intent"
-						value={`dec:${index}`}
-						title="1 Stück verbraucht"
-					>
-						-
-					</button>
+				<!-- Controls: - Zahl + und Mülleimer -->
+				<div class="controls">
+					<div class="step">
+						<button
+							type="submit"
+							name="intent"
+							value={`dec:${index}`}
+							title="1 Stück entfernen"
+						>
+							-
+						</button>
 
-					<span>
-						{#if amountPerUnit}
-							{variant.quantity} × {amountPerUnit} {unit}
-						{:else}
-							{variant.quantity} {unit}
-						{/if}
-					</span>
+						<span class="qty">
+							{#if isPackProduct}
+								{piecesFromRemaining(variant.remainingAmount)}
+							{:else}
+								{variant.piecesRemaining}
+							{/if}
+						</span>
 
-					<button
-						type="submit"
-						name="intent"
-						value={`inc:${index}`}
-						title="1 Stück hinzufügen"
-					>
-						+
-					</button>
-				</div>
+						<button
+							type="submit"
+							name="intent"
+							value={`inc:${index}`}
+							title="1 Stück hinzufügen"
+						>
+							+
+						</button>
+					</div>
 
-				<div class="variant-actions">
 					<button
 						type="submit"
 						name="intent"
 						value={`dispose:${index}`}
 						class="warn"
-						title="Diese Variante entsorgen"
+						title="Variante entsorgen"
 					>
-						⚠
+						🗑️
 					</button>
 				</div>
+
+				<!-- Custom-Feld: nur bei Pack-Produkten -->
+				{#if isPackProduct}
+					<div class="custom">
+						<input
+							type="number"
+							name={`customAmount:${index}`}
+							min="0"
+							step="1"
+							placeholder={`z.B. 500 ${packUnit}`}
+							title="Menge manuell abziehen"
+						/>
+						<button
+							type="submit"
+							name="intent"
+							value={`decCustom:${index}`}
+							class="small"
+							title="Manuelle Menge abziehen"
+						>
+							OK
+						</button>
+					</div>
+				{/if}
 			</div>
 		{/each}
 	</section>
@@ -95,18 +160,34 @@
 		<div class="info">
 			<p class="storage">📍 {storageLocation}</p>
 			<p class="price">
-				{pricePerUnit.toFixed(2)} {currency} / {unit}<br />
-				<span class="total-price">Gesamt: {totalPrice.toFixed(2)} {currency}</span>
+				{pricePerUnit.toFixed(2)}
+				{currency} / Stück<br />
+				<span class="total-price"
+					>Gesamt: {totalPrice.toFixed(2)} {currency}</span
+				>
 			</p>
 		</div>
+
 		<div class="actions">
-			<button type="submit" name="intent" value="delete" class="secondary">
+			<button
+				type="submit"
+				name="intent"
+				value="delete"
+				class="secondary"
+			>
 				Löschen
 			</button>
+
 			<a class="primary link-button" href={`/inventar/${id}/bearbeiten`}>
 				Bearbeiten
 			</a>
-			<button type="submit" name="intent" value="disposeAll" class="danger">
+
+			<button
+				type="submit"
+				name="intent"
+				value="disposeAll"
+				class="danger"
+			>
 				Alles entsorgen
 			</button>
 		</div>
@@ -114,6 +195,7 @@
 </article>
 
 <style>
+	/* ===== Card Layout ===== */
 	.card {
 		background: white;
 		border-radius: 1rem;
@@ -158,6 +240,7 @@
 		font-size: 0.9rem;
 	}
 
+	/* ===== Variants ===== */
 	.variants {
 		display: flex;
 		flex-direction: column;
@@ -166,36 +249,55 @@
 
 	.variant-row {
 		display: grid;
-		grid-template-columns: 1.7fr 1.5fr auto;
+		grid-template-columns: 1fr;
+		gap: 0.5rem;
 		align-items: center;
 		padding: 0.6rem 0.8rem;
 		border-radius: 0.8rem;
 		background: #f9fafb;
 		font-size: 0.9rem;
-		column-gap: 0.75rem;
 	}
 
-	.variant-row[data-status='soon'] {
+	.variant-row[data-status="soon"] {
 		border: 1px solid #f97316;
 	}
 
-	.variant-row[data-status='expired'] {
+	.variant-row[data-status="expired"] {
 		border: 1px solid #ef4444;
 		background: #fef2f2;
+	}
+
+	.meta {
+		display: flex;
+		justify-content: space-between;
+		align-items: baseline;
+		gap: 0.75rem;
 	}
 
 	.label {
 		margin: 0;
 	}
 
-	.variant-quantity {
+	.sub {
+		margin: 0;
+		color: #6b7280;
+		font-size: 0.85rem;
+	}
+
+	.controls {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 0.75rem;
+	}
+
+	.step {
 		display: flex;
 		align-items: center;
-		justify-content: center;
 		gap: 0.5rem;
 	}
 
-	.variant-quantity button {
+	.step button {
 		width: 1.9rem;
 		height: 1.9rem;
 		border-radius: 999px;
@@ -208,17 +310,14 @@
 		font-size: 1rem;
 	}
 
-	.variant-quantity span {
-		min-width: 6.2rem;
-		text-align: center;
-	}
+.qty {
+	min-width: 2.5rem;
+	text-align: center;
+	font-weight: 600;
+	font-size: 0.95rem;
+}
 
-	.variant-actions {
-		display: flex;
-		justify-content: flex-end;
-	}
-
-	.variant-actions .warn {
+	.warn {
 		border: none;
 		background: #fee2e2;
 		color: #b91c1c;
@@ -231,6 +330,32 @@
 		justify-content: center;
 	}
 
+	.custom {
+		display: flex;
+		justify-content: flex-end;
+		align-items: center;
+		gap: 0.35rem;
+	}
+
+	.custom input {
+		width: 7rem;
+		border-radius: 999px;
+		border: 1px solid #d1d5db;
+		padding: 0.35rem 0.55rem;
+		font-size: 0.85rem;
+		background: white;
+	}
+
+	.custom .small {
+		border: none;
+		background: #e5e7eb;
+		border-radius: 999px;
+		padding: 0.35rem 0.65rem;
+		cursor: pointer;
+		font-size: 0.85rem;
+	}
+
+	/* ===== Footer ===== */
 	.card-footer {
 		display: flex;
 		justify-content: space-between;
@@ -307,6 +432,10 @@
 		.link-button {
 			flex: 1;
 			text-align: center;
+		}
+
+		.custom {
+			flex-wrap: wrap;
 		}
 	}
 </style>

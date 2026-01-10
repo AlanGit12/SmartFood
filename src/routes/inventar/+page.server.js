@@ -1,9 +1,30 @@
-// src/routes/inventar/+page.server.js
 import { getDb } from '$lib/server/db.js';
 import { ObjectId } from 'mongodb';
 import { redirect, fail } from '@sveltejs/kit';
 
-// Lädt alle Produkte fürs Inventar
+/**
+ * =========================================================
+ * LOAD:
+ * - liefert products inkl. packUnit/packSize
+ * - totalQuantity ist Summe Packungen (ceil) oder Stück
+ *
+ * ACTIONS:
+ * - inc/dec ändern immer 1 Packung/Stück
+ * - custom (decCustom) nur für packUnit-Produkte (g/ml):
+ *   remainingAmount -= custom
+ * =========================================================
+ */
+
+function roundToStep(value, step) {
+	return Math.round(value / step) * step;
+}
+
+function packsFromRemaining(remainingAmount, packSize) {
+	const amt = Number(remainingAmount || 0);
+	if (!packSize || amt <= 0) return 0;
+	return Math.ceil(amt / packSize);
+}
+
 export async function load() {
 	const db = await getDb();
 
@@ -15,21 +36,28 @@ export async function load() {
 
 	const products = docs.map((doc) => {
 		const variants = doc.variants ?? [];
+		const packUnit = doc.packUnit ?? null;
+		const packSize = doc.packSize ?? null;
 
-		const totalQuantity =
-			typeof doc.totalQuantity === 'number'
-				? doc.totalQuantity
-				: variants.reduce((sum, v) => sum + (v.quantity || 0), 0);
+		const totalQuantity = packUnit && packSize
+			? variants.reduce((sum, v) => sum + packsFromRemaining(v.remainingAmount, packSize), 0)
+			: variants.reduce((sum, v) => sum + (Number(v.piecesRemaining || 0)), 0);
 
 		return {
 			id: doc._id.toString(),
 			normalizedName: doc.normalizedName ?? doc.name?.toLowerCase() ?? '',
 			name: doc.name,
 			icon: doc.icon ?? '🥕',
-			unit: doc.unit ?? 'Stück',
+
 			storageLocation: doc.storageLocation ?? 'Kühlschrank',
 			pricePerUnit: doc.pricePerUnit ?? 0,
-			amountPerUnit: doc.amountPerUnit ?? null,
+
+			// NEU: pack info
+			packUnit,
+			packSize,
+			displayUnit: doc.displayUnit ?? 'Stück',
+			amountPerUnitDisplay: doc.amountPerUnitDisplay ?? 0,
+
 			variants,
 			totalQuantity
 		};
@@ -38,108 +66,145 @@ export async function load() {
 	return { products };
 }
 
-// Actions für Formular-Buttons auf der Inventarseite
 export const actions = {
 	default: async ({ request }) => {
 		const formData = await request.formData();
 		const intent = formData.get('intent');
 		const productId = formData.get('productId');
 
-		if (!productId) {
-			return fail(400, { message: 'productId fehlt' });
-		}
-
-		if (!intent) {
-			return redirect(303, '/inventar');
-		}
+		if (!productId) return fail(400, { message: 'productId fehlt' });
+		if (!intent) return redirect(303, '/inventar');
 
 		const db = await getDb();
-		let _id;
 
+		let _id;
 		try {
 			_id = new ObjectId(productId);
-		} catch (err) {
+		} catch {
 			return fail(400, { message: 'Ungültige Produkt-ID' });
 		}
 
 		const product = await db.collection('products').findOne({ _id });
-
-		if (!product) {
-			return fail(404, { message: 'Produkt nicht gefunden' });
-		}
+		if (!product) return fail(404, { message: 'Produkt nicht gefunden' });
 
 		const variants = [...(product.variants ?? [])];
-		function roundToStep(value, step) {
-		return Math.round(value / step) * step;
-		}
 
-		const rawPrice = parseFloat(formData.get('pricePerUnit') || '0');
+		const packUnit = product.packUnit ?? null;
+		const packSize = product.packSize ?? null;
+		const isPackProduct = Boolean(packUnit && packSize);
+
+		// Preis: "pro Stück/Packung"
+		const rawPrice = parseFloat(formData.get('pricePerUnit') || product.pricePerUnit || '0');
 		const pricePerUnit = roundToStep(rawPrice, 0.05);
 
-		// Helper, um totalQuantity neu zu berechnen
-		const calcTotalQuantity = () =>
-			variants.reduce((sum, v) => sum + (v.quantity || 0), 0);
+		const calcTotalQuantity = () => {
+			if (isPackProduct) {
+				return variants.reduce((sum, v) => sum + packsFromRemaining(v.remainingAmount, packSize), 0);
+			}
+			return variants.reduce((sum, v) => sum + (Number(v.piecesRemaining || 0)), 0);
+		};
 
-		// 🔹 1. Variant-spezifische Intents: dec:X, inc:X, dispose:X
+		// =====================================================
+		// 1) VARIANT-INTENTS: inc/dec/decCustom/dispose
+		// =====================================================
 		if (
-			intent.startsWith('dec:') ||
 			intent.startsWith('inc:') ||
+			intent.startsWith('dec:') ||
+			intent.startsWith('decCustom:') ||
 			intent.startsWith('dispose:')
 		) {
 			const [action, indexStr] = intent.split(':');
 			const index = Number(indexStr);
 
-			if (
-				Number.isNaN(index) ||
-				index < 0 ||
-				index >= variants.length
-			) {
+			if (Number.isNaN(index) || index < 0 || index >= variants.length) {
 				return fail(400, { message: 'Ungültiger Varianten-Index' });
 			}
 
-			const target = { ...variants[index] }; // Kopie
+			const target = { ...variants[index] };
+
 			let eventType = null;
 			let eventQuantity = 0;
+			let eventUnit = 'Stück';
 
-			if (action === 'dec') {
-				if (target.quantity > 0) {
-					target.quantity -= 1;
-					eventType = 'consumed';
-					eventQuantity = 1;
-				}
-				if (target.quantity <= 0) {
-					variants.splice(index, 1);
+			if (action === 'inc') {
+				// +1 Packung / +1 Stück
+				if (isPackProduct) {
+					target.remainingAmount = Number(target.remainingAmount || 0) + packSize;
 				} else {
-					variants[index] = target;
+					target.piecesRemaining = Number(target.piecesRemaining || 0) + 1;
 				}
-			} else if (action === 'inc') {
-				target.quantity = (target.quantity || 0) + 1;
 				variants[index] = target;
-				// aktuell kein Event – könnte später 'addedManual' o.ä. werden
+
+			} else if (action === 'dec') {
+				// -1 Packung / -1 Stück
+				eventType = 'consumed';
+				eventQuantity = 1;
+				eventUnit = 'Stück';
+
+				if (isPackProduct) {
+					target.remainingAmount = Math.max(0, Number(target.remainingAmount || 0) - packSize);
+					if (Number(target.remainingAmount || 0) <= 0) variants.splice(index, 1);
+					else variants[index] = target;
+				} else {
+					target.piecesRemaining = Math.max(0, Number(target.piecesRemaining || 0) - 1);
+					if (Number(target.piecesRemaining || 0) <= 0) variants.splice(index, 1);
+					else variants[index] = target;
+				}
+
+			} else if (action === 'decCustom') {
+				// nur bei Pack-Produkten sinnvoll (UI sendet es nur dann)
+				if (!isPackProduct) return redirect(303, '/inventar');
+
+				const raw = formData.get(`customAmount:${index}`);
+				const customAmount = Number(raw);
+
+				if (!customAmount || customAmount <= 0) {
+					return fail(400, { message: 'Bitte eine gültige Menge eingeben.' });
+				}
+
+				eventType = 'consumed';
+				eventQuantity = customAmount;
+				eventUnit = packUnit;
+
+				target.remainingAmount = Math.max(0, Number(target.remainingAmount || 0) - customAmount);
+
+				if (Number(target.remainingAmount || 0) <= 0) variants.splice(index, 1);
+				else variants[index] = target;
+
 			} else if (action === 'dispose') {
 				eventType = 'disposed';
-				eventQuantity = target.quantity || 0;
+
+				if (isPackProduct) {
+					eventQuantity = Number(target.remainingAmount || 0);
+					eventUnit = packUnit;
+				} else {
+					eventQuantity = Number(target.piecesRemaining || 0);
+					eventUnit = 'Stück';
+				}
+
 				variants.splice(index, 1);
 			}
 
 			const newTotalQuantity = calcTotalQuantity();
-			const totalValueChange = eventQuantity * pricePerUnit;
+
+			// Value: bei Stück-Events kann man Preis pro Stück rechnen.
+			// Bei g/ml-Events (custom) lassen wir value 0, damit es nicht falsch wirkt.
+			const value = eventUnit === 'Stück' ? eventQuantity * pricePerUnit : 0;
 
 			if (eventType && eventQuantity > 0) {
 				await db.collection('productEvents').insertOne({
 					productId,
 					normalizedName: product.normalizedName,
 					name: product.name,
-					type: eventType, // 'consumed' | 'disposed'
-					unit: product.unit,
+					type: eventType,
+					unit: eventUnit,
 					quantity: eventQuantity,
-					value: totalValueChange,
+					value,
 					createdAt: new Date()
 				});
 			}
 
 			if (newTotalQuantity <= 0) {
-				// alle Varianten weg → Produkt ganz löschen
 				await db.collection('products').deleteOne({ _id });
 			} else {
 				await db.collection('products').updateOne(
@@ -157,34 +222,33 @@ export const actions = {
 			return redirect(303, '/inventar');
 		}
 
-		// 🔹 2. Gesamte Produkt-Intents: delete / disposeAll
-		const variantsForTotal = variants;
-		const totalQuantity = variantsForTotal.reduce(
-			(sum, v) => sum + (v.quantity || 0),
-			0
-		);
-		const totalValue = pricePerUnit * totalQuantity;
+		// =====================================================
+		// 2) PRODUKT-GESAMT: delete / disposeAll
+		// delete = consumed, disposeAll = disposed
+		// =====================================================
+		const totalQuantity = calcTotalQuantity();
 
 		if (intent === 'delete' || intent === 'disposeAll') {
 			const type = intent === 'delete' ? 'consumed' : 'disposed';
 
-			await db.collection('productEvents').insertOne({
-				productId,
-				normalizedName: product.normalizedName,
-				name: product.name,
-				type, // 'consumed' | 'disposed'
-				unit: product.unit,
-				quantity: totalQuantity,
-				value: totalValue,
-				createdAt: new Date()
-			});
+			// wir loggen nur Stück (Packungen) als quantity
+			if (totalQuantity > 0) {
+				await db.collection('productEvents').insertOne({
+					productId,
+					normalizedName: product.normalizedName,
+					name: product.name,
+					type,
+					unit: 'Stück',
+					quantity: totalQuantity,
+					value: totalQuantity * pricePerUnit,
+					createdAt: new Date()
+				});
+			}
 
 			await db.collection('products').deleteOne({ _id });
-
 			return redirect(303, '/inventar');
 		}
 
-		// andere Intents ignorieren wir vorerst
 		return redirect(303, '/inventar');
 	}
 };

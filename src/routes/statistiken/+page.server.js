@@ -1,42 +1,45 @@
-// src/routes/statistiken/+page.server.js
 import { getDb } from '$lib/server/db.js';
 
+// =====================================================
+// Statistik Load
+// - liest Events aus productEvents (wie Inventar sie schreibt)
+// - nutzt createdAt statt date
+// =====================================================
 export async function load() {
 	const db = await getDb();
 
-	// 🔹 1. Alle Produkte laden
+	// 1) Inventar
 	const products = await db.collection('products').find().toArray();
 
-	// 🔹 2. FOOD WASTE – wie viel wurde entsorgt?
-	const wasteEntries = await db.collection('productHistory')
+	// 2) Entsorgt / Verbraucht Events
+	const wasteEntries = await db.collection('productEvents')
 		.find({ type: 'disposed' })
-		.sort({ date: 1 })
+		.sort({ createdAt: 1 })
 		.toArray();
 
-	// 🔹 3. Verbrauch – wie viel gegessen wurde?
-	const consumedEntries = await db.collection('productHistory')
+	const consumedEntries = await db.collection('productEvents')
 		.find({ type: 'consumed' })
-		.sort({ date: 1 })
+		.sort({ createdAt: 1 })
 		.toArray();
 
-	// 🔹 4. Monatsbudget
-	const monthlySpend = await db.collection('productHistory')
+	// 3) Monatsbudget (nur falls ihr später 'added' Events schreibt)
+	const monthlySpend = await db.collection('productEvents')
 		.aggregate([
 			{ $match: { type: 'added' } },
 			{
 				$group: {
-					_id: { $substr: ['$date', 0, 7] }, // "2025-01"
-					total: { $sum: '$totalPrice' }
+					_id: { $dateToString: { format: '%Y-%m', date: '$createdAt' } },
+					total: { $sum: '$value' }
 				}
 			},
 			{ $sort: { _id: 1 } }
 		])
 		.toArray();
 
-	// 🔹 5. Kategorien (Ort)
+	// 4) Aufbewahrungsort
 	const categoryStats = products.reduce((acc, p) => {
 		const key = p.storageLocation || 'Unbekannt';
-		acc[key] = (acc[key] || 0) + p.totalQuantity;
+		acc[key] = (acc[key] || 0) + (p.totalQuantity || 0);
 		return acc;
 	}, {});
 
