@@ -1,24 +1,4 @@
 <script>
-	/**
-	 * ProductCard.svelte (final)
-	 * =========================================================
-	 * Zielmodell:
-	 * - Ohne Stückgröße (z.B. Apfel): variant.piecesRemaining (Stück)
-	 * - Mit Stückgröße (z.B. Joghurt 250ml, Nudeln 1kg):
-	 *   variant.remainingAmount (g/ml) und Stück-Anzeige = ceil(remainingAmount / packSize)
-	 *
-	 * UI:
-	 * - Header zeigt: "X Stück × packSizeUnit" oder "X Stück"
-	 * - In Variantenzeile: "Bestand: ...", NICHT nochmal "X Stück × ..."
-	 * - Zwischen - und +: nur Zahl (Option A)
-	 * - Dispose: 🗑️
-	 * - Custom: Label "Menge verbrauchen" + Input + OK (nur bei Pack-Produkten)
-	 * - Footer Actions untereinander:
-	 *   - Alle aufgebraucht
-	 *   - Bearbeiten
-	 *   - Alle entsorgt 🗑️
-	 */
-
 	export let id;
 
 	export let name = 'Produktname';
@@ -38,6 +18,9 @@
 	export let packUnit = null; // 'g' | 'ml' | null
 	export let packSize = null; // number | null
 
+	// ✅ user setting vom Inventar
+	export let soonThresholdDays = 3;
+
 	$: isPackProduct = Boolean(packUnit && packSize && packSize > 0);
 	$: totalPrice = (pricePerUnit || 0) * (totalQuantity || 0);
 
@@ -54,6 +37,23 @@
 		const amt = Number(remainingAmount || 0);
 		if (amt <= 0) return 0;
 		return Math.ceil(amt / packSize);
+	}
+
+	// ✅ Farblogik clientseitig
+	function getVariantStatus(expirationDate) {
+		if (!expirationDate) return 'ok';
+
+		const today = new Date();
+		today.setHours(0, 0, 0, 0);
+
+		const exp = new Date(expirationDate);
+		exp.setHours(0, 0, 0, 0);
+
+		const diffDays = (exp - today) / (1000 * 60 * 60 * 24);
+
+		if (diffDays < 0) return 'expired';
+		if (diffDays <= soonThresholdDays) return 'soon';
+		return 'ok';
 	}
 </script>
 
@@ -76,7 +76,7 @@
 
 	<section class="variants">
 		{#each variants as variant, index (variant.expirationDate + '-' + index)}
-			<div class="variant-row" data-status={variant.status}>
+			<div class="variant-row" data-status={getVariantStatus(variant.expirationDate)}>
 				<div class="meta">
 					<p class="label">Ablauf: {formatDate(variant.expirationDate)}</p>
 
@@ -161,49 +161,39 @@
 	</section>
 
 	<footer class="card-footer">
-	<div class="info">
-		<p class="storage">📍 {storageLocation}</p>
+		<div class="info">
+			<p class="storage">📍 {storageLocation}</p>
+			<p class="unit-price">💸 {Number(pricePerUnit || 0).toFixed(2)} {currency} / Stück</p>
+<p class="total-price">🧾 Gesamt: {Number(totalPrice || 0).toFixed(2)} {currency}</p>
 
-		<p class="unit-price">
-			💸 {pricePerUnit.toFixed(2)} {currency} / Stück
-		</p>
+		</div>
 
-		<p class="total-price">
-			🧾 Gesamt: {totalPrice.toFixed(2)} {currency}
-		</p>
-	</div>
+		<div class="actions stacked">
+			<button
+				type="submit"
+				name="intent"
+				value="delete"
+				class="secondary"
+				title="Markiert alles als aufgebraucht (wird als Verbrauch gezählt)"
+			>
+				Alle aufgebraucht
+			</button>
 
-	<div class="actions stacked">
-		<button
-			type="submit"
-			name="intent"
-			value="delete"
-			class="secondary"
-			title="Markiert alles als aufgebraucht (wird als Verbrauch gezählt)"
-		>
-			Alle aufgebraucht
-		</button>
+			<a class="primary link-button" href={`/inventar/${id}/bearbeiten`} title="Produktdetails bearbeiten">
+				Bearbeiten
+			</a>
 
-		<a
-			class="primary link-button"
-			href={`/inventar/${id}/bearbeiten`}
-			title="Produktdetails bearbeiten"
-		>
-			Bearbeiten
-		</a>
-
-		<button
-			type="submit"
-			name="intent"
-			value="disposeAll"
-			class="danger"
-			title="Markiert alles als entsorgt (landet in der Waste-Statistik)"
-		>
-			Alle entsorgt 🗑️
-		</button>
-	</div>
-</footer>
-
+			<button
+				type="submit"
+				name="intent"
+				value="disposeAll"
+				class="danger"
+				title="Markiert alles als entsorgt (landet in der Waste-Statistik)"
+			>
+				Alle entsorgt 🗑️
+			</button>
+		</div>
+	</footer>
 </article>
 
 <style>
@@ -268,14 +258,18 @@
 		border-radius: 0.8rem;
 		background: #f9fafb;
 		font-size: 0.9rem;
+		border: 1px solid transparent;
 	}
 
+	/* 🟠 bald ablaufend */
 	.variant-row[data-status='soon'] {
-		border: 1px solid #f97316;
+		border-color: #fb923c;
+		background: #fff7ed;
 	}
 
+	/* 🔴 abgelaufen */
 	.variant-row[data-status='expired'] {
-		border: 1px solid #ef4444;
+		border-color: #ef4444;
 		background: #fef2f2;
 	}
 
@@ -322,7 +316,6 @@
 		font-size: 1rem;
 	}
 
-	/* Option A: nur Zahl */
 	.qty {
 		min-width: 2.5rem;
 		text-align: center;
@@ -374,142 +367,40 @@
 		font-size: 0.85rem;
 	}
 
-	/* ===== Footer ===== */
+	/* ===== Footer as Grid ===== */
 	.card-footer {
-		display: flex;
-		justify-content: space-between;
-		align-items: flex-end;
+		display: grid;
+		grid-template-columns: 1fr 170px;
 		gap: 1rem;
-		font-size: 0.9rem;
+		align-items: start;
+
+		border-top: 1px solid #e5e7eb;
+		padding-top: 0.85rem;
 	}
 
-/* ===== Footer Info (links unten) ===== */
-
-.info {
-	display: flex;
-	flex-direction: column;
-	gap: 0.75rem; /* mehr Luft zwischen Lagerort & Preisblock */
-	color: #4b5563;
-}
-
-/* ===== Footer ===== */
-.card-footer {
-	display: grid;
-	grid-template-columns: 1fr 170px; /* rechts Buttons fix, links nutzt Platz */
-	gap: 1rem;
-	align-items: start;
-
-	border-top: 1px solid #e5e7eb;
-	padding-top: 0.85rem;
-}
-
-.info {
-	display: flex;
-	flex-direction: column;
-	gap: 0.45rem;
-	color: #4b5563;
-}
-
-/* Zeilen kompakt aber klar */
-.storage,
-.unit-price,
-.total-price {
-	margin: 0;
-	line-height: 1.25;
-}
-
-.storage {
-	font-size: 0.9rem;
-}
-
-.unit-price {
-	font-size: 0.85rem;
-	color: #6b7280;
-}
-
-/* Gesamtpreis bewusst stärker */
-.total-price {
-	font-weight: 700;
-	font-size: 0.95rem;
-	color: #111827;
-}
-
-/* Actions rechts als “Panel” */
-.actions.stacked {
-	display: flex;
-	flex-direction: column;
-	gap: 0.5rem;
-	align-items: stretch;
-	justify-content: flex-start;
-}
-
-.actions.stacked button,
-.actions.stacked .link-button {
-	width: 100%;
-	text-align: center;
-}
-
-/* Mobile: untereinander */
-@media (max-width: 768px) {
-	.card-footer {
-		grid-template-columns: 1fr;
-	}
-}
-
-
-
-/* Lagerort */
-.storage {
-	margin: 0;
-	font-size: 0.9rem;
-}
-
-/* Preis pro Stück */
-.unit-price {
-	margin: 0;
-	font-size: 0.85rem;
-	color: #6b7280;
-}
-
-/* Gesamtpreis stärker hervorheben */
-.total-price {
-	margin: 0;
-	font-weight: 600;
-	font-size: 0.95rem;
-	color: #111827;
-}
-
-.card-footer {
-	border-top: 1px solid #e5e7eb;
-	padding-top: 0.75rem;
-}
-
-
-	.storage {
-		margin: 0 0 0.25rem 0;
+	.info {
+		display: flex;
+		flex-direction: column;
+		gap: 0.45rem;
+		color: #4b5563;
 	}
 
-	
+	.storage,
+	.unit-price,
+	.total-price {
+		margin: 0;
+		line-height: 1.25;
+	}
+
+	.unit-price {
+		font-size: 0.85rem;
+		color: #6b7280;
+	}
 
 	.total-price {
-		font-weight: 600;
-	}
-
-	.actions {
-		display: flex;
-		gap: 0.5rem;
-		flex-wrap: wrap;
-		justify-content: flex-end;
-	}
-
-	.actions button,
-	.link-button {
-		border-radius: 999px;
-		padding: 0.4rem 1rem;
-		border: none;
-		font-size: 0.85rem;
-		cursor: pointer;
-		text-decoration: none;
+		font-weight: 700;
+		font-size: 0.95rem;
+		color: #111827;
 	}
 
 	.actions.stacked {
@@ -517,12 +408,19 @@
 		flex-direction: column;
 		gap: 0.5rem;
 		align-items: stretch;
+		justify-content: flex-start;
 	}
 
 	.actions.stacked button,
 	.actions.stacked .link-button {
 		width: 100%;
 		text-align: center;
+		border-radius: 999px;
+		padding: 0.4rem 1rem;
+		border: none;
+		font-size: 0.85rem;
+		cursor: pointer;
+		text-decoration: none;
 	}
 
 	.secondary {
@@ -548,18 +446,7 @@
 
 	@media (max-width: 768px) {
 		.card-footer {
-			flex-direction: column;
-			align-items: stretch;
-		}
-
-		.actions {
-			justify-content: stretch;
-		}
-
-		.actions button,
-		.link-button {
-			flex: 1;
-			text-align: center;
+			grid-template-columns: 1fr;
 		}
 
 		.custom {
