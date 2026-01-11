@@ -36,13 +36,20 @@
 			text: 'Wenn du ein ganzes Produkt (inklusive aller Varianten) entsorgen musst, entfernst du es hiermit vollständig aus dem Inventar. Die Menge wird als Food-Waste verbucht.'
 		}
 	];
+
+	const quickStart = [
+		'Lege zuerst 2–3 Lagerorte an (z.B. Kühlschrank, Tiefkühler).',
+		'Füge danach ein paar Standardprodukte hinzu (z.B. Brot, Milch, Gemüse).',
+		'Erfasse mehrere Packungen als separate Varianten mit eigenem Ablaufdatum.',
+		'Nutze Minus für Verbrauch und ⚠ für Entsorgung, damit die Statistik stimmt.'
+	];
 </script>
 
 <main class="welcome">
 	<section class="hero">
 		<div class="hero-text">
 			<p class="badge">Prototyp • Smart Food Planner</p>
-			<h1>Willkommen beim Smart Food Planner 🥕</h1>
+			<h1>Willkommen beim Smart Food Planner 🍽️</h1>
 			<p class="lead">
 				Diese App hilft dir, den Überblick über deine Lebensmittel zu behalten,
 				Food Waste zu reduzieren und dein Budget im Blick zu haben.
@@ -51,12 +58,22 @@
 			<div class="hero-actions">
 				<a href="/inventar" class="primary-button">Zum Inventar</a>
 				<a href="/statistiken" class="secondary-button">Statistiken ansehen</a>
+				<a href="/lagerorte" class="ghost-button">Lagerorte verwalten</a>
 			</div>
 
 			<p class="hint">
 				Tipp: Starte mit dem Inventar und füge ein paar typische Produkte hinzu
 				(z.B. Jogurts, Brot, Gemüse).
 			</p>
+
+			<div class="quickstart">
+				<h2 class="mini-title">Schnellstart (1 Minute)</h2>
+				<ol>
+					{#each quickStart as s}
+						<li>{s}</li>
+					{/each}
+				</ol>
+			</div>
 		</div>
 	</section>
 
@@ -69,6 +86,22 @@
 					<p>{step.text}</p>
 				</article>
 			{/each}
+		</div>
+	</section>
+
+	<section class="section">
+		<h2>Was bedeutet „Variante“?</h2>
+		<div class="info-card">
+			<p>
+				Ein Produkt kann mehrfach vorhanden sein – z.B. <strong>2x Joghurt</strong> mit
+				unterschiedlichen Ablaufdaten oder <strong>1x Pasta im Vorratsschrank</strong> und
+				<strong>1x Pasta im Keller</strong>.
+			</p>
+			<p>
+				Dafür gibt es <strong>Varianten</strong>: Jede Variante kann ein eigenes Ablaufdatum
+				und eine eigene Menge haben. So bleibt der Bestand realistisch und du siehst
+				früh, was zuerst weg muss.
+			</p>
 		</div>
 	</section>
 
@@ -111,6 +144,16 @@
 			</p>
 		</div>
 	</section>
+
+	<section class="section">
+		<h2>Hinweis zum Prototyp</h2>
+		<div class="info-card">
+			<p>
+				Smart Food Planner ist ein Prototyp für ein Studienprojekt. Fokus ist die
+				Funktionalität und die Nachvollziehbarkeit von Verbrauch/Entsorgung.
+			</p>
+		</div>
+	</section>
 </main>
 
 <style>
@@ -131,7 +174,7 @@
 	}
 
 	.hero-text {
-		max-width: 640px;
+		max-width: 720px;
 	}
 
 	.badge {
@@ -161,11 +204,12 @@
 		display: flex;
 		flex-wrap: wrap;
 		gap: 0.6rem;
-		margin-bottom: 0.5rem;
+		margin-bottom: 0.6rem;
 	}
 
 	.primary-button,
-	.secondary-button {
+	.secondary-button,
+	.ghost-button {
 		border-radius: 999px;
 		padding: 0.55rem 1.2rem;
 		font-size: 0.9rem;
@@ -189,10 +233,36 @@
 		border: 1px solid rgba(15, 118, 110, 0.2);
 	}
 
+	.ghost-button {
+		background: transparent;
+		color: #0f766e;
+		border: 1px dashed rgba(15, 118, 110, 0.35);
+	}
+
 	.hint {
 		margin: 0;
 		color: #6b7280;
 		font-size: 0.85rem;
+	}
+
+	.quickstart {
+		margin-top: 1rem;
+		background: rgba(255, 255, 255, 0.75);
+		border: 1px solid rgba(15, 118, 110, 0.12);
+		border-radius: 1rem;
+		padding: 0.9rem 1rem;
+	}
+
+	.mini-title {
+		margin: 0 0 0.5rem 0;
+		font-size: 1rem;
+	}
+
+	.quickstart ol {
+		margin: 0;
+		padding-left: 1.1rem;
+		color: #374151;
+		font-size: 0.9rem;
 	}
 
 	.section {
