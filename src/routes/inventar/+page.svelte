@@ -179,7 +179,7 @@
 
 <section class="kpi-row">
 	<SummaryCard title="Anzahl Produkte" value={totalProducts} subtitle="verschiedene Artikel im Inventar" icon="📦" variant="default" />
-	<SummaryCard title="Bald ablaufend" value={expiringSoon} subtitle="Varianten innerhalb der Schwelle" icon="🟠" variant="warning" />
+	<SummaryCard title="Bald ablaufend" value={expiringSoon} subtitle="Varianten innerhalb der Ablaufzeit" icon="⚠️" variant="warning" />
 	<SummaryCard title="Wert der Produkte" value={`${totalValue.toFixed(2)} CHF`} subtitle="geschätzter Gesamtwert" icon="💶" variant="money" />
 </section>
 

@@ -21,6 +21,7 @@
 <style>
     nav {
         display: flex;
+        justify-content: center; /* ✅ neu */
         align-items: center;
         gap: 2rem;
         padding: 1rem 2rem;

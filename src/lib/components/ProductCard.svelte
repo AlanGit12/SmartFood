@@ -157,11 +157,11 @@
 				class="secondary"
 				title="Markiert alles als aufgebraucht (wird als Verbrauch gezählt)"
 			>
-				Alle aufgebraucht
+				Alle aufgebraucht 👨‍🍳
 			</button>
 
 			<a class="primary link-button" href={`/inventar/${id}/bearbeiten`} title="Produktdetails bearbeiten">
-				Bearbeiten
+				Bearbeiten ✍️
 			</a>
 
 			<button

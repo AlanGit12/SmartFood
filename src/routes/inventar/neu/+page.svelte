@@ -13,7 +13,7 @@
 
 	// Formular-State
 	let name = '';
-	let icon = '🥕';
+	let icon = '🍽️';
 	let unit = 'Stück';
 	let amountPerUnit = 1;
 	let storageLocation = locations[0]?.name ?? 'Kühlschrank';

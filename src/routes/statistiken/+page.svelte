@@ -19,10 +19,41 @@
 		return `${Number(n || 0).toFixed(1)} %`;
 	}
 
+	const MONTHS_DE = [
+		"Jan",
+		"Feb",
+		"Mär",
+		"Apr",
+		"Mai",
+		"Jun",
+		"Jul",
+		"Aug",
+		"Sep",
+		"Okt",
+		"Nov",
+		"Dez",
+	];
+
 	function fmtWeek(iso) {
 		if (!iso) return "";
-		const [, m, d] = String(iso).split("-");
-		return `${d}.${m}`;
+		const parts = String(iso).split("-"); // YYYY-MM-DD
+		if (parts.length < 3) return String(iso);
+
+		const m = Number(parts[1]);
+		const d = parts[2];
+
+		const mm =
+			Number.isFinite(m) && m >= 1 && m <= 12
+				? MONTHS_DE[m - 1]
+				: parts[1];
+		return `${d}.${mm}`;
+	}
+
+	function fmtDate(iso) {
+		if (!iso) return "";
+		const [y, m, d] = String(iso).split("-");
+		if (!y || !m || !d) return String(iso);
+		return `${d}.${m}.${y}`;
 	}
 
 	// ---------- Chart helpers ----------
@@ -126,7 +157,9 @@
 <section class="header">
 	<div class="title">
 		<h1>Statistiken</h1>
-		<p class="subtitle">Wochenwerte · {data.from} bis {data.to}</p>
+		<p class="subtitle">
+			Wochenwerte · {fmtDate(data.from)} bis {fmtDate(data.to)}
+		</p>
 	</div>
 
 	<form method="GET" class="range">
@@ -163,7 +196,7 @@
 		variant="warning"
 	/>
 	<SummaryCard
-		title="Waste-Quote"
+		title="Abfall-Quote"
 		value={pct(data.wasteQuote)}
 		subtitle="Wert weggeworfen / Ausgaben"
 		icon="📉"
@@ -182,7 +215,7 @@
 				</p>
 			</div>
 			<div class="meta">
-				<span class="badge red">● disposed</span>
+				<span class="badge red">● Weggeworfen</span>
 			</div>
 		</header>
 
@@ -224,7 +257,6 @@
 			viewBox={`0 0 ${W} ${H}`}
 			class="svg"
 			role="img"
-
 			aria-label="Liniendiagramm: Ausgaben pro Woche"
 			on:mousemove={onMove}
 			on:mouseleave={onLeave}

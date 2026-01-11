@@ -44,7 +44,7 @@ export async function load() {
 			id: t._id.toString(),
 			name: t.name ?? '',
 			normalizedName: t.normalizedName ?? (t.name ?? '').toLowerCase(),
-			icon: t.icon ?? '🥕',
+			icon: t.icon ?? '🍽️',
 
 			displayUnit: t.displayUnit ?? 'Stück',
 			amountPerUnitDisplay: safeNumber(t.amountPerUnitDisplay, 1),
@@ -69,7 +69,7 @@ export const actions = {
 
 		const normalizedName = name.toLowerCase();
 
-		const icon = String(fd.get('icon') || '🥕').trim() || '🥕';
+		const icon = String(fd.get('icon') || '🍽️').trim() || '🍽️';
 
 		const displayUnit = String(fd.get('unit') || 'Stück');
 		let amountPerUnitDisplay = safeNumber(fd.get('amountPerUnit'), 0);
