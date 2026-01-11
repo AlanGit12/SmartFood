@@ -1,131 +1,108 @@
 import { getDb } from '$lib/server/db.js';
 
-/**
- * Statistik basiert auf productEvents:
- * type: 'purchased' | 'consumed' | 'disposed'
- * value: CHF Wert (number)
- *
- * Wir berechnen:
- * - totals: purchased/consumed/disposed (CHF)
- * - daily Verlauf für die letzten N Tage (consumed/disposed/purchased)
- */
-
-function startOfDayUTC(date) {
-	return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+function startOfDayUTC(d) {
+	return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+}
+function addDaysUTC(d, days) {
+	const x = new Date(d);
+	x.setUTCDate(x.getUTCDate() + days);
+	return x;
+}
+function addMonthsUTC(d, months) {
+	const x = new Date(d);
+	x.setUTCMonth(x.getUTCMonth() + months);
+	return x;
+}
+function iso(d) {
+	return d.toISOString().slice(0, 10);
+}
+function clampRange(r) {
+	return ['1m', '3m', '6m', '12m'].includes(r) ? r : '3m';
+}
+function rangeToMonths(r) {
+	if (r === '1m') return 1;
+	if (r === '3m') return 3;
+	if (r === '6m') return 6;
+	return 12;
+}
+function weekStartISO(date) {
+	const d = startOfDayUTC(new Date(date));
+	const day = d.getUTCDay(); // 0=So
+	const diffToMon = (day + 6) % 7;
+	d.setUTCDate(d.getUTCDate() - diffToMon);
+	return iso(d);
 }
 
-function addDaysUTC(date, days) {
-	const d = new Date(date);
-	d.setUTCDate(d.getUTCDate() + days);
-	return d;
-}
-
-function isoDayUTC(date) {
-	// YYYY-MM-DD
-	const y = date.getUTCFullYear();
-	const m = String(date.getUTCMonth() + 1).padStart(2, '0');
-	const d = String(date.getUTCDate()).padStart(2, '0');
-	return `${y}-${m}-${d}`;
-}
-
-export async function load() {
+export async function load({ url }) {
 	const db = await getDb();
 
-	const DAYS = 14; // Verlauf: letzte 14 Tage
+	const range = clampRange(url.searchParams.get('range') || '3m');
+	const months = rangeToMonths(range);
+
 	const today = startOfDayUTC(new Date());
-	const from = addDaysUTC(today, -(DAYS - 1));
-	const toExclusive = addDaysUTC(today, 1); // bis morgen 00:00 UTC
+	const from = startOfDayUTC(addMonthsUTC(today, -months));
+	const toExclusive = addDaysUTC(today, 1);
 
-	// --- Totals (alles)
-	const totalsAgg = await db
-		.collection('productEvents')
-		.aggregate([
-			{
-				$group: {
-					_id: '$type',
-					totalValue: { $sum: { $ifNull: ['$value', 0] } },
-					count: { $sum: 1 }
-				}
-			}
-		])
-		.toArray();
+	// ✅ Filter wirkt wirklich: nur Events im Zeitraum
+	const events = await db.collection('productEvents').find({
+		createdAt: { $gte: from, $lt: toExclusive },
+		type: { $in: ['purchased', 'disposed'] }
+	}).toArray();
 
-	const totals = {
-		purchasedValue: 0,
-		consumedValue: 0,
-		disposedValue: 0,
-		eventsCount: 0
-	};
+	// ✅ Wochen-Aggregation
+	const map = new Map();
 
-	for (const row of totalsAgg) {
-		if (row._id === 'purchased') totals.purchasedValue = row.totalValue || 0;
-		if (row._id === 'consumed') totals.consumedValue = row.totalValue || 0;
-		if (row._id === 'disposed') totals.disposedValue = row.totalValue || 0;
-		totals.eventsCount += row.count || 0;
-	}
-
-	// --- Daily Verlauf (letzte N Tage)
-	// Wir laden Events im Zeitraum und gruppieren pro Tag + Typ
-	const dailyAgg = await db
-		.collection('productEvents')
-		.aggregate([
-			{
-				$match: {
-					createdAt: { $gte: from, $lt: toExclusive },
-					type: { $in: ['purchased', 'consumed', 'disposed'] }
-				}
-			},
-			{
-				$addFields: {
-					day: {
-						$dateToString: {
-							format: '%Y-%m-%d',
-							date: '$createdAt',
-							timezone: 'UTC'
-						}
-					}
-				}
-			},
-			{
-				$group: {
-					_id: { day: '$day', type: '$type' },
-					value: { $sum: { $ifNull: ['$value', 0] } }
-				}
-			}
-		])
-		.toArray();
-
-	// Map: day -> { purchasedValue, consumedValue, disposedValue }
-	const byDay = new Map();
-	for (const row of dailyAgg) {
-		const day = row._id.day;
-		const type = row._id.type;
-		const value = row.value || 0;
-
-		if (!byDay.has(day)) {
-			byDay.set(day, { day, purchasedValue: 0, consumedValue: 0, disposedValue: 0 });
+	for (const e of events) {
+		const key = weekStartISO(e.createdAt);
+		if (!map.has(key)) {
+			map.set(key, { week: key, purchasedValue: 0, disposedValue: 0, disposedCount: 0 });
 		}
-		const obj = byDay.get(day);
-		if (type === 'purchased') obj.purchasedValue += value;
-		if (type === 'consumed') obj.consumedValue += value;
-		if (type === 'disposed') obj.disposedValue += value;
+		const w = map.get(key);
+
+		if (e.type === 'purchased') {
+			w.purchasedValue += Number(e.value || 0);
+		}
+
+		if (e.type === 'disposed') {
+			w.disposedValue += Number(e.value || 0);
+
+			// ✅ bevorzugt piecesEquivalent
+			if (typeof e.piecesEquivalent === 'number') w.disposedCount += Number(e.piecesEquivalent || 0);
+			else if (e.unit === 'Stück') w.disposedCount += Number(e.quantity || 0);
+			else w.disposedCount += 1;
+		}
 	}
 
-	// Wir füllen fehlende Tage auf (damit Chart immer gleich lang ist)
-	const daily = [];
-	for (let i = 0; i < DAYS; i++) {
-		const d = addDaysUTC(from, i);
-		const key = isoDayUTC(d);
-		daily.push(byDay.get(key) ?? { day: key, purchasedValue: 0, consumedValue: 0, disposedValue: 0 });
+	// ✅ lückenlose Wochenliste NUR im Zeitraum
+	// starte bei Wochenbeginn von "from"
+	const firstWeekISO = weekStartISO(from);
+	let cursor = new Date(firstWeekISO + 'T00:00:00.000Z');
+
+	// letzte Woche: Wochenbeginn von "today"
+	const lastWeekISO = weekStartISO(today);
+	const last = new Date(lastWeekISO + 'T00:00:00.000Z');
+
+	const weeklyData = [];
+	for (; cursor <= last; cursor = addDaysUTC(cursor, 7)) {
+		const k = iso(cursor);
+		weeklyData.push(map.get(k) ?? { week: k, purchasedValue: 0, disposedValue: 0, disposedCount: 0 });
 	}
 
-	// KPIs für Overview (für UI)
-	const overview = {
-		spentCHF: totals.purchasedValue,      // "ausgegeben"
-		consumedCHF: totals.consumedValue,    // "konsumiert"
-		wastedCHF: totals.disposedValue,      // "entsorgt"
-		wasteRate: totals.purchasedValue > 0 ? totals.disposedValue / totals.purchasedValue : 0
+	const totals = weeklyData.reduce(
+		(acc, w) => {
+			acc.spent += w.purchasedValue;
+			acc.wasteValue += w.disposedValue;
+			acc.wasteCount += w.disposedCount;
+			return acc;
+		},
+		{ spent: 0, wasteValue: 0, wasteCount: 0 }
+	);
+
+	return {
+		range,
+		from: firstWeekISO,
+		to: lastWeekISO,
+		weeklyData,
+		totals
 	};
-
-	return { overview, daily };
 }
