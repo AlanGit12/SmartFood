@@ -1,135 +1,130 @@
 <script>
-	import { getFoodEmoji } from '$lib/emoji-food-map.js';
-
-	// Templates werden vom Server geliefert
 	export let data;
-	const templates = data.templates ?? [];
 
-	// Basisfelder
+	// ----------------------------
+	// Templates
+	// ----------------------------
+	let templates = data.templates ?? [];
 	let selectedTemplateId = '';
+
+	// ----------------------------
+	// Formular-State
+	// ----------------------------
 	let name = '';
-	let icon = '🍽️';
+	let icon = '🥕';
 	let unit = 'Stück';
+	let amountPerUnit = 1;
 	let storageLocation = 'Kühlschrank';
-	let pricePerUnit = 0.0;
-	let amountPerUnit = 0;
+	let pricePerUnit = 0;
 
-	// Varianten
-	let variants = [
-		{ id: 1, quantity: 1, expirationDate: '' }
-	];
+	// Varianten (mind. eine)
+	let variants = [{ id: 1, quantity: 1, expirationDate: '' }];
+	let nextVariantId = 2;
 
-	let nextId = 2;
-
-	function applyTemplate(t, { onlyIfUntouched = false } = {}) {
-	if (!onlyIfUntouched || !touched.unit) {
-		unit = t.displayUnit || unit;
-	}
-
-	if (unit === 'Stück') {
+	// ----------------------------
+	// Reaktiv: Stück => immer 1
+	// ----------------------------
+	$: if (unit === 'Stück') {
 		amountPerUnit = 1;
-	} else if (!onlyIfUntouched || !touched.amountPerUnit) {
-		const v = Number(t.amountPerUnitDisplay ?? 0);
-		if (Number.isFinite(v) && v > 0) amountPerUnit = v;
 	}
 
-	if (!onlyIfUntouched || !touched.storageLocation) {
-		storageLocation = t.defaultStorageLocation || storageLocation;
-	}
+	// ----------------------------
+	// Template anwenden
+	// ----------------------------
+	function applyTemplateById(id) {
+		selectedTemplateId = id;
+		if (!id) return;
 
-	if (!onlyIfUntouched || !touched.pricePerUnit) {
-		const p = Number(t.defaultPricePerUnit ?? 0);
+		const tpl = templates.find((t) => String(t.id) === String(id));
+		if (!tpl) {
+			console.warn('Template nicht gefunden:', id);
+			return;
+		}
+
+		// ✅ Alles übernehmen
+		name = tpl.name ?? name;
+		icon = tpl.icon ?? icon;
+
+		unit = tpl.displayUnit ?? unit;
+
+		if (unit === 'Stück') {
+			amountPerUnit = 1;
+		} else {
+			const v = Number(tpl.amountPerUnitDisplay ?? 0);
+			if (Number.isFinite(v) && v > 0) amountPerUnit = v;
+		}
+
+		storageLocation = tpl.defaultStorageLocation ?? storageLocation;
+
+		const p = Number(tpl.defaultPricePerUnit ?? 0);
 		if (Number.isFinite(p)) pricePerUnit = p;
 	}
-}
 
-
-	// Neue Emoji-Vorschläge automatisch setzen
-	$: icon = getFoodEmoji(name, icon || '🍽️');
-
-
-	// Einheit-Logik: Stück => immer 1
-$: if (unit === 'Stück') {
-	amountPerUnit = 1;
-}
-
-
-	// Varianten-Logik
-	function addVariantRow() {
+	// ----------------------------
+	// Varianten-Handling
+	// ----------------------------
+	function addVariant() {
 		variants = [
 			...variants,
-			{ id: nextId++, quantity: 1, expirationDate: '' }
+			{ id: nextVariantId++, quantity: 1, expirationDate: '' }
 		];
 	}
 
-	function removeVariantRow(id) {
+	function removeVariant(id) {
 		if (variants.length === 1) return;
 		variants = variants.filter((v) => v.id !== id);
-	}
-
-	function updateVariant(id, field, value) {
-		variants = variants.map((v) =>
-			v.id === id ? { ...v, [field]: value } : v
-		);
 	}
 </script>
 
 <section class="page-header">
 	<div>
 		<h1>Produkt hinzufügen</h1>
-		<p class="subtitle">Erfasse ein neues Produkt für dein Inventar.</p>
+		<p class="subtitle">Erstelle ein neues Produkt oder nutze eine Vorlage.</p>
 	</div>
-	<a href="/inventar" class="secondary-button">Zurück zum Inventar</a>
+	<a href="/inventar" class="secondary-button">Zurück</a>
 </section>
 
-<form class="form" method="POST">
+<form method="POST" class="form">
+	<!-- ========================= -->
+	<!-- VORLAGE -->
+	<!-- ========================= -->
+	<section class="card">
+		<h2>Vorlage (optional)</h2>
+
+		<div class="field">
+			<label for="template">Vorlage wählen</label>
+			<select
+				id="template"
+				bind:value={selectedTemplateId}
+				on:change={(e) => applyTemplateById(e.currentTarget.value)}
+			>
+				<option value="">– Keine Vorlage –</option>
+				{#each templates as tpl (tpl.id)}
+					<option value={tpl.id}>
+						{tpl.icon} {tpl.name}
+					</option>
+				{/each}
+			</select>
+		</div>
+	</section>
+
+	<!-- ========================= -->
+	<!-- BASIS -->
+	<!-- ========================= -->
 	<section class="card">
 		<h2>Basisinformationen</h2>
+
 		<div class="grid">
-
-			<!-- TEMPLATE AUSWAHL -->
-			<div class="field">
-				<label for="template">Vorlage wählen (optional)</label>
-				<select
-					id="template"
-					bind:value={selectedTemplateId}
-					on:change={(e) => applyTemplate(e.currentTarget.value)}
-				>
-					<option value="">– Keine Vorlage –</option>
-					{#each templates as tpl}
-						<option value={tpl.id}>
-							{tpl.icon} {tpl.name}
-						</option>
-					{/each}
-				</select>
-			</div>
-
-			<!-- NAME -->
 			<div class="field">
 				<label for="name">Produktname</label>
-				<input
-					id="name"
-					name="name"
-					type="text"
-					bind:value={name}
-					placeholder="z.B. Heidelbeerjoghurt"
-					required
-				/>
+				<input id="name" name="name" bind:value={name} required />
 			</div>
 
-			<!-- ICON -->
 			<div class="field">
-				<label for="icon">Icon (Emoji)</label>
-				<input
-					id="icon"
-					name="icon"
-					type="text"
-					bind:value={icon}
-					maxlength="2"
-				/>
+				<label for="icon">Icon</label>
+				<input id="icon" name="icon" bind:value={icon} maxlength="2" />
 			</div>
 
-			<!-- EINHEIT -->
 			<div class="field">
 				<label for="unit">Einheit</label>
 				<select id="unit" name="unit" bind:value={unit}>
@@ -141,30 +136,23 @@ $: if (unit === 'Stück') {
 				</select>
 			</div>
 
-			<!-- MENGE PRO EINHEIT -->
 			<div class="field">
-				<label for="amount">Menge pro Einheit</label>
-				<div class="with-unit">
-					<input
-	name="amountPerUnit"
-	type="number"
-	min="1"
-	step="1"
-	bind:value={amountPerUnit}
-	disabled={unit === 'Stück'}
-	required
-/>
-
-					<span class="unit-label">{unit}</span>
-				</div>
-				<p class="field-hint">z.B. 250 ml, 500 g, 1 Stück</p>
+				<label for="amountPerUnit">Menge pro Einheit</label>
+				<input
+					id="amountPerUnit"
+					name="amountPerUnit"
+					type="number"
+					min="0.01"
+					step="0.01"
+					bind:value={amountPerUnit}
+					required
+				/>
 			</div>
 
-			<!-- STORAGE -->
 			<div class="field">
-				<label for="storage">Aufbewahrungsort</label>
+				<label for="storageLocation">Aufbewahrungsort</label>
 				<select
-					id="storage"
+					id="storageLocation"
 					name="storageLocation"
 					bind:value={storageLocation}
 				>
@@ -175,80 +163,67 @@ $: if (unit === 'Stück') {
 			</div>
 
 			<div class="field">
-	<label for="price">Preis pro Einheit (CHF)</label>
-	<input
-		id="price"
-		name="pricePerUnit"
-		type="number"
-		step="0.05"
-		min="0"
-		bind:value={pricePerUnit}
-		placeholder="z.B. 0.80"
-	/>
-</div>
-
+				<label for="pricePerUnit">Preis pro Einheit (CHF)</label>
+				<input
+					id="pricePerUnit"
+					name="pricePerUnit"
+					type="number"
+					min="0"
+					step="0.05"
+					bind:value={pricePerUnit}
+				/>
+			</div>
 		</div>
 	</section>
 
-	<!-- VARIANTEN-BEREICH -->
+	<!-- ========================= -->
+	<!-- VARIANTEN -->
+	<!-- ========================= -->
 	<section class="card">
 		<div class="card-header">
 			<h2>Mengen & Ablaufdaten</h2>
-			<button type="button" class="small-button" on:click={addVariantRow}>
+			<button type="button" class="small-button" on:click={addVariant}>
 				+ Zeile hinzufügen
 			</button>
 		</div>
 
-		<p class="hint">
-			Falls du dasselbe Produkt mit verschiedenen Ablaufdaten hast,
-			kannst du mehrere Zeilen anlegen.
-		</p>
-
-		<div class="variant-header-row">
-			<span>Menge</span>
-			<span>Ablaufdatum</span>
-			<span></span>
-		</div>
-
-		{#each variants as variant (variant.id)}
+		{#each variants as v (v.id)}
 			<div class="variant-row">
-				<div>
-					<input
-						type="number"
-						min="1"
-						step="1"
-						name="variant_quantity"
-						bind:value={variant.quantity}
-						on:input={(e) =>
-							updateVariant(variant.id, 'quantity', Number(e.target.value) || 0)}
-					/>
-				</div>
+				<input
+					type="number"
+					min="1"
+					step="1"
+					name="variant_quantity"
+					bind:value={v.quantity}
+				/>
 
-				<div>
-					<input
-						type="date"
-						name="variant_expirationDate"
-						bind:value={variant.expirationDate}
-						required
-					/>
-				</div>
+				<input
+					type="date"
+					name="variant_expirationDate"
+					bind:value={v.expirationDate}
+					required
+				/>
 
-				<div class="variant-actions">
-					<button
-						type="button"
-						class="icon-button"
-						on:click={() => removeVariantRow(variant.id)}
-					>
-						✕
-					</button>
-				</div>
+				<button
+					type="button"
+					class="icon-button"
+					on:click={() => removeVariant(v.id)}
+					title="Entfernen"
+				>
+					✕
+				</button>
 			</div>
 		{/each}
 	</section>
 
+	<!-- ========================= -->
+	<!-- ACTIONS -->
+	<!-- ========================= -->
 	<section class="form-actions">
 		<a href="/inventar" class="secondary-button">Abbrechen</a>
-		<button type="submit" class="primary-button">Produkt speichern</button>
+		<button type="submit" class="primary-button">
+			Produkt speichern
+		</button>
 	</section>
 </form>
 
@@ -260,13 +235,7 @@ $: if (unit === 'Stück') {
 		margin-bottom: 1.5rem;
 	}
 
-	h1 {
-		margin: 0 0 0.25rem 0;
-		font-size: 1.6rem;
-	}
-
 	.subtitle {
-		margin: 0;
 		color: #6b7280;
 		font-size: 0.9rem;
 	}
@@ -282,19 +251,13 @@ $: if (unit === 'Stück') {
 		background: white;
 		border-radius: 1rem;
 		padding: 1.25rem 1.5rem;
-		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 		border: 1px solid #e5e7eb;
-	}
-
-	.card h2 {
-		margin: 0 0 1rem 0;
-		font-size: 1.1rem;
 	}
 
 	.grid {
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-		gap: 1rem 1.25rem;
+		gap: 1rem;
 	}
 
 	.field {
@@ -316,13 +279,6 @@ $: if (unit === 'Stück') {
 		font-size: 0.9rem;
 	}
 
-	input:focus,
-	select:focus {
-		outline: none;
-		border-color: #0f766e;
-		box-shadow: 0 0 0 1px rgba(15, 118, 110, 0.2);
-	}
-
 	.card-header {
 		display: flex;
 		justify-content: space-between;
@@ -330,31 +286,11 @@ $: if (unit === 'Stück') {
 		margin-bottom: 0.75rem;
 	}
 
-	.hint {
-		margin: 0 0 0.75rem 0;
-		font-size: 0.8rem;
-		color: #6b7280;
-	}
-
-	.variant-header-row {
-		display: grid;
-		grid-template-columns: 1fr 2fr auto;
-		font-size: 0.8rem;
-		color: #6b7280;
-		margin-bottom: 0.25rem;
-	}
-
 	.variant-row {
 		display: grid;
 		grid-template-columns: 1fr 2fr auto;
 		gap: 0.5rem;
-		align-items: center;
-		margin-bottom: 0.4rem;
-	}
-
-	.variant-actions {
-		display: flex;
-		justify-content: flex-end;
+		margin-bottom: 0.5rem;
 	}
 
 	.icon-button {
@@ -364,32 +300,7 @@ $: if (unit === 'Stück') {
 		border-radius: 999px;
 		width: 1.8rem;
 		height: 1.8rem;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
 		cursor: pointer;
-		font-size: 0.9rem;
-	}
-
-	.with-unit {
-		display: flex;
-		align-items: center;
-		gap: 0.4rem;
-	}
-
-	.unit-label {
-		font-size: 0.85rem;
-		color: #4b5563;
-		padding: 0.3rem 0.6rem;
-		border-radius: 0.6rem;
-		background: #f3f4f6;
-		border: 1px solid #e5e7eb;
-	}
-
-	.field-hint {
-		margin: 0.15rem 0 0;
-		font-size: 0.75rem;
-		color: #9ca3af;
 	}
 
 	.form-actions {
@@ -398,35 +309,21 @@ $: if (unit === 'Stück') {
 		gap: 0.75rem;
 	}
 
-	.primary-button,
-	.secondary-button,
-	.small-button {
-		border-radius: 999px;
-		border: none;
-		padding: 0.5rem 1rem;
-		font-size: 0.9rem;
-		cursor: pointer;
-		text-decoration: none;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		gap: 0.25rem;
-	}
-
 	.primary-button {
 		background: #0f766e;
 		color: white;
+		border-radius: 999px;
+		padding: 0.5rem 1.2rem;
+		border: none;
 	}
 
-	.secondary-button {
-		background: #e5e7eb;
-		color: #111827;
-	}
-
+	.secondary-button,
 	.small-button {
 		background: #e5e7eb;
 		color: #111827;
-		font-size: 0.8rem;
-		padding: 0.35rem 0.8rem;
+		border-radius: 999px;
+		padding: 0.5rem 1rem;
+		text-decoration: none;
+		border: none;
 	}
 </style>
