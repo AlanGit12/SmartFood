@@ -25,7 +25,7 @@ function normalizePackUnit(unit) {
 
 function parseTemplateForm(fd) {
 	const name = String(fd.get('name') || '').trim();
-	const icon = String(fd.get('icon') || '🥕').trim() || '🥕';
+	const icon = String(fd.get('icon') || '🍽️').trim() || '🍽️';
 
 	const displayUnit = String(fd.get('displayUnit') || 'Stück');
 	let amountPerUnitDisplay = Number(fd.get('amountPerUnitDisplay') || 0);
@@ -75,7 +75,7 @@ export async function load() {
 			id: t._id.toString(),
 			name: t.name ?? '',
 			normalizedName: t.normalizedName ?? (t.name ?? '').toLowerCase(),
-			icon: t.icon ?? '🥕',
+			icon: t.icon ?? '🍽️',
 			displayUnit: t.displayUnit ?? 'Stück',
 			amountPerUnitDisplay: Number(t.amountPerUnitDisplay ?? 1),
 			defaultStorageLocation: t.defaultStorageLocation ?? 'Kühlschrank',

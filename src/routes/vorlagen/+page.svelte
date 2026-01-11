@@ -37,7 +37,7 @@
 
         <div class="field">
             <label for="new_icon">Icon</label>
-            <input id="new_icon" name="icon" maxlength="2" placeholder="🥕" />
+            <input id="new_icon" name="icon" maxlength="2" placeholder="🍽️" />
         </div>
 
         <div class="field">
