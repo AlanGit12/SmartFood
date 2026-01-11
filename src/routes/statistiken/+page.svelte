@@ -1,161 +1,217 @@
 <script>
+	import SummaryCard from '$lib/components/SummaryCard.svelte';
+
 	export let data;
 
-	const { waste, consumed, monthlySpend, categoryStats } = data;
-
-	// Helfer zum Formatieren
-	function formatCHF(value) {
-		return `${value.toFixed(2)} CHF`;
+	function formatCHF(n) {
+		const x = Number(n || 0);
+		return `${x.toFixed(2)} CHF`;
 	}
+
+	function labelDate(iso) {
+		// iso: YYYY-MM-DD -> DD.MM
+		if (!iso) return '';
+		const [y, m, d] = String(iso).split('-');
+		return `${d}.${m}`;
+	}
+
+	// max value für Balken
+	$: maxDayValue = Math.max(
+		1,
+		...(data.daily ?? []).map((d) => (d.purchasedValue || 0) + (d.consumedValue || 0) + (d.disposedValue || 0))
+	);
 </script>
 
-<h1>Statistik</h1>
-<p class="subtitle">
-	Analysen über Verbrauch, Entsorgung und deine Ausgaben.
-</p>
-
-<!-- ========================================================= -->
-<!-- KARTEN -->
-<!-- ========================================================= -->
+<section class="page-header">
+	<div>
+		<h1>Statistiken</h1>
+		<p class="subtitle">Übersicht über Ausgaben, Konsum und Food Waste (CHF).</p>
+	</div>
+</section>
 
 <section class="kpi-row">
-	<div class="card">
-		<h3>Entsorgt</h3>
-		<p class="value">{waste.length}</p>
-		<p class="info">Einträge insgesamt</p>
-	</div>
+	<SummaryCard
+		title="Ausgegeben"
+		value={formatCHF(data.overview?.spentCHF)}
+		subtitle="Summe aller Käufe (purchased)"
+		icon="🛒"
+		variant="money"
+	/>
 
-	<div class="card">
-		<h3>Verbraucht</h3>
-		<p class="value">{consumed.length}</p>
-		<p class="info">Einträge insgesamt</p>
-	</div>
+	<SummaryCard
+		title="Konsumiert"
+		value={formatCHF(data.overview?.consumedCHF)}
+		subtitle="Wert der verbrauchten Produkte"
+		icon="🍽️"
+		variant="default"
+	/>
 
-	<div class="card">
-		<h3>Monatliche Ausgaben</h3>
-		<p class="value">
-			{monthlySpend.length > 0
-				? formatCHF(monthlySpend.at(-1).total)
-				: '0 CHF'}
-		</p>
-		<p class="info">letzter Monat</p>
-	</div>
+	<SummaryCard
+		title="Entsorgt"
+		value={formatCHF(data.overview?.wastedCHF)}
+		subtitle={`Waste-Rate: ${((data.overview?.wasteRate || 0) * 100).toFixed(0)}%`}
+		icon="🗑️"
+		variant="warning"
+	/>
 </section>
 
-<!-- ========================================================= -->
-<!-- FOOD WASTE VERLAUF -->
-<!-- ========================================================= -->
+<section class="grid">
+	<article class="panel">
+		<header class="panel-header">
+			<h2>Verlauf (Wert pro Tag)</h2>
+			<p class="hint">🛒 = gekauft, 🍽️ = konsumiert, 🗑️ = entsorgt</p>
+		</header>
 
-<section class="chart-card">
-	<h2>Food Waste Verlauf</h2>
-	<p class="chart-info">
-		Entsorgte Produkte im Zeitverlauf
-	</p>
+		<div class="mini-chart">
+			{#each (data.daily ?? []) as d (d.day)}
+				<div class="row">
+					<div class="day">{labelDate(d.day)}</div>
 
-	{#if waste.length === 0}
-		<p>Keine Entsorgungen vorhanden.</p>
-	{:else}
-		<div class="chart">
-			{#each waste as entry}
-				<div class="bar" title={entry.date}></div>
+					<div
+						class="bars"
+						title={`Gekauft: ${formatCHF(d.purchasedValue)} | Konsumiert: ${formatCHF(d.consumedValue)} | Entsorgt: ${formatCHF(d.disposedValue)}`}
+					>
+						<div class="bar purchased" style={`width:${((d.purchasedValue / maxDayValue) * 100).toFixed(2)}%`}></div>
+						<div class="bar consumed" style={`width:${((d.consumedValue / maxDayValue) * 100).toFixed(2)}%`}></div>
+						<div class="bar disposed" style={`width:${((d.disposedValue / maxDayValue) * 100).toFixed(2)}%`}></div>
+					</div>
+
+					<div class="sum">
+						{formatCHF((d.purchasedValue || 0) + (d.consumedValue || 0) + (d.disposedValue || 0))}
+					</div>
+				</div>
 			{/each}
 		</div>
-	{/if}
-</section>
 
-<!-- ========================================================= -->
-<!-- MONATSAUSGABEN -->
-<!-- ========================================================= -->
-
-<section class="chart-card">
-	<h2>Ausgaben nach Monat</h2>
-
-	{#if monthlySpend.length === 0}
-		<p>Keine Einkäufe erfasst.</p>
-	{:else}
-		<ul class="list">
-			{#each monthlySpend as m}
-				<li>
-					<strong>{m._id}</strong>: {formatCHF(m.total)}
-				</li>
-			{/each}
-		</ul>
-	{/if}
-</section>
-
-<!-- ========================================================= -->
-<!-- INVENTAR NACH ORT -->
-<!-- ========================================================= -->
-
-<section class="chart-card">
-	<h2>Produkte nach Aufbewahrungsort</h2>
-
-	<ul class="list">
-		{#each Object.entries(categoryStats) as [key, value]}
-			<li>
-				<strong>{key}</strong>: {value}
-			</li>
-		{/each}
-	</ul>
+		<footer class="legend">
+			<span><span class="dot purchased"></span> gekauft</span>
+			<span><span class="dot consumed"></span> konsumiert</span>
+			<span><span class="dot disposed"></span> entsorgt</span>
+		</footer>
+	</article>
 </section>
 
 <style>
-	h1 { margin-bottom: 0.25rem; }
+	.page-header {
+		margin-bottom: 1rem;
+	}
+	h1 {
+		margin: 0 0 0.25rem 0;
+		font-size: 1.6rem;
+	}
 	.subtitle {
+		margin: 0;
 		color: #6b7280;
-		margin-bottom: 1.5rem;
+		font-size: 0.9rem;
 	}
 
 	.kpi-row {
 		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+		grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 		gap: 1rem;
-		margin-bottom: 2rem;
+		margin-bottom: 1.5rem;
 	}
 
-	.card {
-		background: #fff;
-		border-radius: 1rem;
-		padding: 1rem;
-		border: 1px solid #e5e7eb;
+	.grid {
+		display: grid;
+		grid-template-columns: 1fr;
+		gap: 1rem;
 	}
 
-	.card .value {
-		font-size: 1.8rem;
-		font-weight: bold;
-		margin: 0.4rem 0;
-	}
-
-	.chart-card {
+	.panel {
 		background: white;
-		padding: 1.25rem;
 		border-radius: 1rem;
 		border: 1px solid #e5e7eb;
-		margin-bottom: 2rem;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+		padding: 1.25rem 1.5rem;
 	}
 
-	.chart {
+	.panel-header {
 		display: flex;
-		align-items: flex-end;
-		gap: 4px;
-		height: 120px;
-		margin-top: 1rem;
+		flex-direction: column;
+		gap: 0.25rem;
+		margin-bottom: 0.75rem;
+	}
+
+	.hint {
+		margin: 0;
+		color: #6b7280;
+		font-size: 0.85rem;
+	}
+
+	.mini-chart {
+		display: flex;
+		flex-direction: column;
+		gap: 0.55rem;
+		margin-top: 0.5rem;
+	}
+
+	.row {
+		display: grid;
+		grid-template-columns: 54px 1fr 110px;
+		align-items: center;
+		gap: 0.75rem;
+	}
+
+	.day {
+		color: #6b7280;
+		font-size: 0.85rem;
+	}
+
+	.bars {
+		height: 10px;
+		display: flex;
+		gap: 6px;
+		align-items: center;
 	}
 
 	.bar {
-		height: 100%;
+		height: 10px;
+		border-radius: 999px;
+	}
+
+	.bar.purchased {
+		background: #3b82f6; /* blau */
+	}
+
+	.bar.consumed {
+		background: #16a34a; /* grün */
+	}
+
+	.bar.disposed {
+		background: #ef4444; /* rot */
+	}
+
+	.sum {
+		text-align: right;
+		font-variant-numeric: tabular-nums;
+		color: #111827;
+		font-weight: 600;
+	}
+
+	.legend {
+		display: flex;
+		gap: 1rem;
+		margin-top: 1rem;
+		color: #6b7280;
+		font-size: 0.85rem;
+	}
+
+	.dot {
+		display: inline-block;
 		width: 10px;
-		background: #ef4444;
-		border-radius: 4px;
+		height: 10px;
+		border-radius: 999px;
+		margin-right: 0.35rem;
 	}
 
-	.list {
-		list-style: none;
-		padding: 0;
-	}
+	.dot.purchased { background: #3b82f6; }
+	.dot.consumed { background: #16a34a; }
+	.dot.disposed { background: #ef4444; }
 
-	.list li {
-		padding: 0.25rem 0;
-		border-bottom: 1px solid #f3f4f6;
+	@media (max-width: 640px) {
+		.row {
+			grid-template-columns: 48px 1fr 90px;
+		}
 	}
 </style>

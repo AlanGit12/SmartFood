@@ -21,21 +21,38 @@
 
 	let nextId = 2;
 
-	// Template übernehmen
-	function applyTemplate(id) {
-		const tpl = templates.find((t) => t.id === id);
-		if (!tpl) return;
-
-		name = tpl.name;
-		icon = tpl.icon;
-		unit = tpl.unit;
-		amountPerUnit = tpl.amountPerUnit || 0;
-		storageLocation = tpl.storageLocation;
-		pricePerUnit = tpl.pricePerUnit;
+	function applyTemplate(t, { onlyIfUntouched = false } = {}) {
+	if (!onlyIfUntouched || !touched.unit) {
+		unit = t.displayUnit || unit;
 	}
+
+	if (unit === 'Stück') {
+		amountPerUnit = 1;
+	} else if (!onlyIfUntouched || !touched.amountPerUnit) {
+		const v = Number(t.amountPerUnitDisplay ?? 0);
+		if (Number.isFinite(v) && v > 0) amountPerUnit = v;
+	}
+
+	if (!onlyIfUntouched || !touched.storageLocation) {
+		storageLocation = t.defaultStorageLocation || storageLocation;
+	}
+
+	if (!onlyIfUntouched || !touched.pricePerUnit) {
+		const p = Number(t.defaultPricePerUnit ?? 0);
+		if (Number.isFinite(p)) pricePerUnit = p;
+	}
+}
+
 
 	// Neue Emoji-Vorschläge automatisch setzen
 	$: icon = getFoodEmoji(name, icon || '🍽️');
+
+
+	// Einheit-Logik: Stück => immer 1
+$: if (unit === 'Stück') {
+	amountPerUnit = 1;
+}
+
 
 	// Varianten-Logik
 	function addVariantRow() {
@@ -129,15 +146,15 @@
 				<label for="amount">Menge pro Einheit</label>
 				<div class="with-unit">
 					<input
-						id="amount"
-						name="amountPerUnit"
-						type="number"
-						min="0"
-						step="0.01"
-						bind:value={amountPerUnit}
-						placeholder="z.B. 250"
-						required
-					/>
+	name="amountPerUnit"
+	type="number"
+	min="1"
+	step="1"
+	bind:value={amountPerUnit}
+	disabled={unit === 'Stück'}
+	required
+/>
+
 					<span class="unit-label">{unit}</span>
 				</div>
 				<p class="field-hint">z.B. 250 ml, 500 g, 1 Stück</p>

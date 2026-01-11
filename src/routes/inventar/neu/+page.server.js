@@ -1,24 +1,13 @@
 import { getDb } from '$lib/server/db.js';
-import { redirect, fail } from '@sveltejs/kit';
+import { fail, redirect } from '@sveltejs/kit';
+import { ObjectId } from 'mongodb';
 
-/**
- * =========================================================
- * Zielmodell:
- * - Produkte ohne Stückgröße: packUnit = null, packSize = null
- *   Varianten speichern: piecesRemaining (Stück)
- *
- * - Produkte mit Stückgröße: packUnit = 'g'|'ml', packSize (Basis, z.B. 1000)
- *   Varianten speichern: remainingAmount (Basis, z.B. g/ml)
- *   Packungen im UI = ceil(remainingAmount / packSize)
- * =========================================================
- */
-
+// ---------- helpers ----------
 function roundToStep(value, step) {
 	return Math.round(value / step) * step;
 }
 
 function normalizePackUnit(unit) {
-	// User kann kg/l wählen -> wir speichern in Basis g/ml
 	switch (unit) {
 		case 'kg':
 			return { packUnit: 'g', factorToBase: 1000 };
@@ -34,153 +23,136 @@ function normalizePackUnit(unit) {
 	}
 }
 
+function safeNumber(v, fallback = 0) {
+	const n = Number(v);
+	return Number.isFinite(n) ? n : fallback;
+}
+
+// ---------- load templates for suggestions ----------
 export async function load() {
 	const db = await getDb();
 
-	const docs = await db
-		.collection('productTemplates')
-		.find({})
-		.sort({ name: 1 })
-		.toArray();
+	const templates = await db.collection('productTemplates').find({}).sort({ name: 1 }).toArray();
 
-	const templates = docs.map((doc) => ({
-		id: doc._id.toString(),
-		name: doc.name,
-		icon: doc.icon ?? '🍽️',
+	return {
+		templates: templates.map((t) => ({
+			id: t._id.toString(),
+			name: t.name ?? '',
+			normalizedName: t.normalizedName ?? (t.name ?? '').toLowerCase(),
+			icon: t.icon ?? '🥕',
 
-		// Anzeige-Werte für Formular
-		unit: doc.displayUnit ?? 'Stück',
-		amountPerUnit: doc.amountPerUnitDisplay ?? 0,
+			displayUnit: t.displayUnit ?? 'Stück',
+			amountPerUnitDisplay: safeNumber(t.amountPerUnitDisplay, 1),
 
-		storageLocation: doc.defaultStorageLocation ?? 'Kühlschrank',
-		pricePerUnit: doc.defaultPricePerUnit ?? 0
-	}));
-
-	return { templates };
+			defaultStorageLocation: t.defaultStorageLocation ?? 'Kühlschrank',
+			defaultPricePerUnit: safeNumber(t.defaultPricePerUnit, 0)
+		}))
+	};
 }
 
 export const actions = {
 	default: async ({ request }) => {
-		const formData = await request.formData();
+		const db = await getDb();
+		const fd = await request.formData();
 
-		const name = formData.get('name');
-		const icon = formData.get('icon') || '🥕';
+		// ✅ Achtung: im neu/+page.svelte heißt das Feld name="unit"
+		// Darum holen wir es hier als displayUnit aus "unit"
+		const name = String(fd.get('name') || '').trim();
+		const icon = String(fd.get('icon') || '🥕');
 
-		// Das ist bei euch im UI weiterhin "unit" Dropdown
-		// Bedeutung:
-		// - 'Stück' => keine Stückgröße (Apfel)
-		// - 'g/kg/ml/l' => Stückgröße existiert (Packung mit Inhalt)
-		const displayUnit = formData.get('unit') || 'Stück';
-		const storageLocation = formData.get('storageLocation');
+		const displayUnit = String(fd.get('unit') || 'Stück'); // ✅ FIX: displayUnit ist jetzt definiert
+		let amountPerUnitDisplay = safeNumber(fd.get('amountPerUnit'), 0);
 
-		const rawPrice = parseFloat(formData.get('pricePerUnit') || '0');
+		const storageLocation = String(fd.get('storageLocation') || 'Kühlschrank');
+
+		const rawPrice = safeNumber(fd.get('pricePerUnit'), 0);
 		const pricePerUnit = roundToStep(rawPrice, 0.05);
 
-		// "Menge pro Einheit" (z.B. 250 ml oder 1 kg)
-		const amountPerUnitDisplay = parseFloat(formData.get('amountPerUnit') || '0');
+		const quantities = fd.getAll('variant_quantity');
+		const expirations = fd.getAll('variant_expirationDate');
 
-		if (!name || !displayUnit || !storageLocation) {
-			return fail(400, { message: 'Pflichtfelder fehlen.' });
-		}
-
-		const { packUnit, factorToBase } = normalizePackUnit(displayUnit);
-
-		// packSize in Basis (g/ml), nur wenn packUnit existiert
-		const packSize =
-			packUnit ? amountPerUnitDisplay * factorToBase : null;
-
-		// Varianten aus Formular: variant_quantity ist immer "Stück/Packungen"
-		const quantities = formData.getAll('variant_quantity');
-		const expirations = formData.getAll('variant_expirationDate');
-
+		if (!name) return fail(400, { message: 'Name fehlt.' });
 		if (!quantities.length || !expirations.length) {
 			return fail(400, { message: 'Mindestens eine Variante wird benötigt.' });
 		}
 
+		// Einheit normalisieren (Pack-Logik)
+		const { packUnit, factorToBase } = normalizePackUnit(displayUnit);
+
+		// ✅ Regel: Stück => Menge pro Einheit ist immer 1
+		if (!packUnit) amountPerUnitDisplay = 1;
+		if (packUnit && (!amountPerUnitDisplay || amountPerUnitDisplay <= 0)) {
+			return fail(400, { message: 'Menge pro Einheit muss > 0 sein.' });
+		}
+
+		const packSize = packUnit ? amountPerUnitDisplay * factorToBase : null;
+
+		// Varianten bauen (neues Modell)
 		const variants = quantities.map((q, i) => {
-			const pieces = Number(q) || 0;
+			const pieces = safeNumber(q, 0);
+			const exp = String(expirations[i] || '');
 
 			if (packUnit) {
-				// Packung mit Inhalt: speichere remainingAmount
 				return {
 					remainingAmount: pieces * (packSize || 0),
-					expirationDate: expirations[i],
+					expirationDate: exp,
 					status: 'ok'
 				};
 			}
 
-			// Reines Stück-Produkt
 			return {
 				piecesRemaining: pieces,
-				expirationDate: expirations[i],
+				expirationDate: exp,
 				status: 'ok'
 			};
 		});
 
-		// totalQuantity = Summe der Packungen (ceil) oder Stück
 		const totalQuantity = packUnit
 			? variants.reduce((sum, v) => {
-					const amt = Number(v.remainingAmount || 0);
+					const amt = safeNumber(v.remainingAmount, 0);
 					if (!packSize || amt <= 0) return sum;
 					return sum + Math.ceil(amt / packSize);
 			  }, 0)
-			: variants.reduce((sum, v) => sum + (Number(v.piecesRemaining || 0)), 0);
+			: variants.reduce((sum, v) => sum + safeNumber(v.piecesRemaining, 0), 0);
 
-		const normalizedName = name.trim().toLowerCase();
-		const db = await getDb();
+		const normalizedName = name.toLowerCase();
 
-		// Merge nach normalizedName wie bei euch
-		const existing = await db.collection('products').findOne({ normalizedName });
-
-		const productDocBase = {
+		// Produkt speichern
+		const insertRes = await db.collection('products').insertOne({
 			normalizedName,
 			name,
 			icon,
-			storageLocation,
 
-			// Preis pro Stück/Packung
+			storageLocation,
 			pricePerUnit,
 
-			// NEU: Pack-Infos
-			packUnit,              // 'g'|'ml'|null
-			packSize,              // number in base or null
-			displayUnit,           // 'kg'/'g'/'ml'/'l'/'Stück'
-			amountPerUnitDisplay,  // z.B. 1 (kg) oder 250 (ml) oder 0
+			packUnit,
+			packSize,
+			displayUnit,
+			amountPerUnitDisplay,
 
+			variants,
+			totalQuantity,
+
+			createdAt: new Date(),
 			updatedAt: new Date()
-		};
+		});
 
-		if (existing) {
-			const mergedVariants = [...(existing.variants ?? []), ...variants];
-
-			const mergedTotalQuantity = packUnit
-				? mergedVariants.reduce((sum, v) => {
-						const amt = Number(v.remainingAmount || 0);
-						if (!packSize || amt <= 0) return sum;
-						return sum + Math.ceil(amt / packSize);
-				  }, 0)
-				: mergedVariants.reduce((sum, v) => sum + (Number(v.piecesRemaining || 0)), 0);
-
-			await db.collection('products').updateOne(
-				{ _id: existing._id },
-				{
-					$set: {
-						...productDocBase,
-						variants: mergedVariants,
-						totalQuantity: mergedTotalQuantity
-					}
-				}
-			);
-		} else {
-			await db.collection('products').insertOne({
-				...productDocBase,
-				variants,
-				totalQuantity,
+		// ✅ purchased event loggen (damit Statistik "Ausgegeben" stimmt)
+		if (totalQuantity > 0 && pricePerUnit > 0) {
+			await db.collection('productEvents').insertOne({
+				productId: insertRes.insertedId.toString(),
+				normalizedName,
+				name,
+				type: 'purchased',
+				unit: 'Stück', // Packs/Stück zählen wir in Statistik als "Stück"
+				quantity: totalQuantity,
+				value: totalQuantity * pricePerUnit,
 				createdAt: new Date()
 			});
 		}
 
-		// Template speichern (damit neu befüllen passt)
+		// ✅ Template updaten/erstellen (damit Vorschläge bleiben)
 		await db.collection('productTemplates').updateOne(
 			{ normalizedName },
 			{
@@ -191,8 +163,6 @@ export const actions = {
 
 					displayUnit,
 					amountPerUnitDisplay,
-
-					// auch pack info speichern (für spätere Logik)
 					packUnit,
 					packSize,
 
