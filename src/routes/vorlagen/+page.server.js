@@ -3,10 +3,6 @@ import { fail, redirect } from '@sveltejs/kit';
 import { ObjectId } from 'mongodb';
 import { getStorageLocations } from '$lib/server/storageLocations.js';
 
-
-$: locations = data.locations ?? [];
-
-
 function roundToStep(value, step) {
 	return Math.round(value / step) * step;
 }
@@ -27,32 +23,10 @@ function normalizePackUnit(unit) {
 	}
 }
 
-export async function load() {
-	const db = await getDb();
-const locations = await getStorageLocations();
-	const templates = await db.collection('productTemplates').find({}).sort({ name: 1 }).toArray();
-
-	return {
-		templates: templates.map((t) => ({
-			id: t._id.toString(),
-			name: t.name ?? '',
-			normalizedName: t.normalizedName ?? (t.name ?? '').toLowerCase(),
-			icon: t.icon ?? '🥕',
-
-			displayUnit: t.displayUnit ?? 'Stück',
-			amountPerUnitDisplay: Number(t.amountPerUnitDisplay ?? 1),
-
-			defaultStorageLocation: t.defaultStorageLocation ?? 'Kühlschrank',
-			defaultPricePerUnit: Number(t.defaultPricePerUnit ?? 0)
-		}))
-	};
-}
-
 function parseTemplateForm(fd) {
 	const name = String(fd.get('name') || '').trim();
-	const icon = String(fd.get('icon') || '🥕');
+	const icon = String(fd.get('icon') || '🥕').trim() || '🥕';
 
-	// ✅ WICHTIG: displayUnit IMMER definieren
 	const displayUnit = String(fd.get('displayUnit') || 'Stück');
 	let amountPerUnitDisplay = Number(fd.get('amountPerUnitDisplay') || 0);
 
@@ -63,15 +37,14 @@ function parseTemplateForm(fd) {
 
 	if (!Number.isFinite(amountPerUnitDisplay)) amountPerUnitDisplay = 0;
 
-	// normalize pack info
 	const { packUnit, factorToBase } = normalizePackUnit(displayUnit);
 
-	// ✅ Regel: Stück => immer 1
+	// Stück => Menge immer 1
 	if (!packUnit) {
 		amountPerUnitDisplay = 1;
 	} else {
 		if (!amountPerUnitDisplay || amountPerUnitDisplay <= 0) {
-			return { error: 'Menge pro Einheit muss > 0 sein.', ok: false };
+			return { ok: false, error: 'Menge pro Einheit muss > 0 sein.' };
 		}
 	}
 
@@ -91,6 +64,27 @@ function parseTemplateForm(fd) {
 	};
 }
 
+export async function load() {
+	const db = await getDb();
+
+	const templates = await db.collection('productTemplates').find({}).sort({ name: 1 }).toArray();
+	const locations = await getStorageLocations();
+
+	return {
+		templates: templates.map((t) => ({
+			id: t._id.toString(),
+			name: t.name ?? '',
+			normalizedName: t.normalizedName ?? (t.name ?? '').toLowerCase(),
+			icon: t.icon ?? '🥕',
+			displayUnit: t.displayUnit ?? 'Stück',
+			amountPerUnitDisplay: Number(t.amountPerUnitDisplay ?? 1),
+			defaultStorageLocation: t.defaultStorageLocation ?? 'Kühlschrank',
+			defaultPricePerUnit: Number(t.defaultPricePerUnit ?? 0)
+		})),
+		locations
+	};
+}
+
 export const actions = {
 	create: async ({ request }) => {
 		const db = await getDb();
@@ -98,7 +92,6 @@ export const actions = {
 
 		const parsed = parseTemplateForm(fd);
 		if (!parsed.ok) return fail(400, { message: parsed.error });
-
 		if (!parsed.name) return fail(400, { message: 'Name fehlt.' });
 
 		await db.collection('productTemplates').updateOne(
@@ -108,15 +101,12 @@ export const actions = {
 					name: parsed.name,
 					normalizedName: parsed.normalizedName,
 					icon: parsed.icon,
-
 					displayUnit: parsed.displayUnit,
 					amountPerUnitDisplay: parsed.amountPerUnitDisplay,
 					packUnit: parsed.packUnit,
 					packSize: parsed.packSize,
-
 					defaultStorageLocation: parsed.defaultStorageLocation,
 					defaultPricePerUnit: parsed.defaultPricePerUnit,
-
 					updatedAt: new Date()
 				},
 				$setOnInsert: { createdAt: new Date() }
@@ -143,7 +133,6 @@ export const actions = {
 
 		const parsed = parseTemplateForm(fd);
 		if (!parsed.ok) return fail(400, { message: parsed.error });
-
 		if (!parsed.name) return fail(400, { message: 'Name fehlt.' });
 
 		await db.collection('productTemplates').updateOne(
@@ -153,15 +142,12 @@ export const actions = {
 					name: parsed.name,
 					normalizedName: parsed.normalizedName,
 					icon: parsed.icon,
-
 					displayUnit: parsed.displayUnit,
 					amountPerUnitDisplay: parsed.amountPerUnitDisplay,
 					packUnit: parsed.packUnit,
 					packSize: parsed.packSize,
-
 					defaultStorageLocation: parsed.defaultStorageLocation,
 					defaultPricePerUnit: parsed.defaultPricePerUnit,
-
 					updatedAt: new Date()
 				}
 			}
@@ -185,7 +171,6 @@ export const actions = {
 		}
 
 		await db.collection('productTemplates').deleteOne({ _id });
-
 		throw redirect(303, '/vorlagen');
 	}
 };

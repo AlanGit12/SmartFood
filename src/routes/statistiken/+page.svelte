@@ -280,7 +280,15 @@
 			</div>
 		</header>
 
-		<svg viewBox={`0 0 ${W} ${H}`} class="svg" on:mousemove={onMove} on:mouseleave={onLeave}>
+		<svg
+	viewBox={`0 0 ${W} ${H}`}
+	class="svg"
+	role="img"
+	tabindex="0"
+	aria-label="Liniendiagramm: Ausgaben pro Woche"
+	on:mousemove={onMove}
+	on:mouseleave={onLeave}
+>
 			{#each Array(GRID_Y + 1) as _, gi (gi)}
 				{@const v = (wasteCountMax * gi) / GRID_Y}
 				{@const yy = y(v, wasteCountMax)}

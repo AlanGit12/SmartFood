@@ -2,7 +2,6 @@
 import { MongoClient } from 'mongodb';
 import { env } from '$env/dynamic/private'; // statt process.env
 
-console.log('Private env keys:', Object.keys(env)); // <--- diese Zeile
 
 const uri = env.MONGODB_URI;
 

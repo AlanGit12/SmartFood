@@ -1,5 +1,6 @@
 <script>
     export let data;
+    $: locations = data.locations ?? [];
 
     let newUnit = "Stück";
     let newAmount = 1;
