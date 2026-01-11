@@ -43,13 +43,15 @@ export async function load({ url }) {
 	const from = startOfDayUTC(addMonthsUTC(today, -months));
 	const toExclusive = addDaysUTC(today, 1);
 
-	// ✅ Filter wirkt wirklich: nur Events im Zeitraum
+	// ✅ Filter wirkt: nur Events im Zeitraum
 	const events = await db.collection('productEvents').find({
 		createdAt: { $gte: from, $lt: toExclusive },
 		type: { $in: ['purchased', 'disposed'] }
 	}).toArray();
 
-	// ✅ Wochen-Aggregation
+	// -----------------------
+	// Wochen-Aggregation
+	// -----------------------
 	const map = new Map();
 
 	for (const e of events) {
@@ -66,19 +68,17 @@ export async function load({ url }) {
 		if (e.type === 'disposed') {
 			w.disposedValue += Number(e.value || 0);
 
-			// ✅ bevorzugt piecesEquivalent
+			// bevorzugt piecesEquivalent
 			if (typeof e.piecesEquivalent === 'number') w.disposedCount += Number(e.piecesEquivalent || 0);
 			else if (e.unit === 'Stück') w.disposedCount += Number(e.quantity || 0);
 			else w.disposedCount += 1;
 		}
 	}
 
-	// ✅ lückenlose Wochenliste NUR im Zeitraum
-	// starte bei Wochenbeginn von "from"
+	// lückenlose Wochenliste NUR im Zeitraum
 	const firstWeekISO = weekStartISO(from);
 	let cursor = new Date(firstWeekISO + 'T00:00:00.000Z');
 
-	// letzte Woche: Wochenbeginn von "today"
 	const lastWeekISO = weekStartISO(today);
 	const last = new Date(lastWeekISO + 'T00:00:00.000Z');
 
@@ -98,11 +98,47 @@ export async function load({ url }) {
 		{ spent: 0, wasteValue: 0, wasteCount: 0 }
 	);
 
+	// ✅ Waste-Quote
+	const wasteQuote =
+		totals.spent > 0 ? (totals.wasteValue / totals.spent) * 100 : 0;
+
+	// -----------------------
+	// Top 5 Wegwerf-Produkte (nach CHF)
+	// -----------------------
+	const disposedOnly = events.filter((e) => e.type === 'disposed');
+
+	const byProduct = new Map();
+	for (const e of disposedOnly) {
+		const key = (e.normalizedName || e.name || '').toLowerCase();
+		if (!key) continue;
+
+		if (!byProduct.has(key)) {
+			byProduct.set(key, {
+				normalizedName: key,
+				name: e.name || key,
+				value: 0,
+				count: 0
+			});
+		}
+		const row = byProduct.get(key);
+		row.value += Number(e.value || 0);
+
+		if (typeof e.piecesEquivalent === 'number') row.count += Number(e.piecesEquivalent || 0);
+		else if (e.unit === 'Stück') row.count += Number(e.quantity || 0);
+		else row.count += 1;
+	}
+
+	const topWaste = Array.from(byProduct.values())
+		.sort((a, b) => (b.value - a.value) || (b.count - a.count))
+		.slice(0, 5);
+
 	return {
 		range,
 		from: firstWeekISO,
 		to: lastWeekISO,
 		weeklyData,
-		totals
+		totals,
+		wasteQuote,
+		topWaste
 	};
 }

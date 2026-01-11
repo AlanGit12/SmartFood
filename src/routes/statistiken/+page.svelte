@@ -10,13 +10,16 @@
 	];
 
 	$: weekly = data.weeklyData ?? [];
+	$: topWaste = data.topWaste ?? [];
 
 	function chf(n) {
 		return `${Number(n || 0).toFixed(2)} CHF`;
 	}
+	function pct(n) {
+		return `${Number(n || 0).toFixed(1)} %`;
+	}
 
 	function fmtWeek(iso) {
-		// YYYY-MM-DD -> DD.MM
 		if (!iso) return '';
 		const [, m, d] = String(iso).split('-');
 		return `${d}.${m}`;
@@ -98,7 +101,6 @@
 	$: wasteValuePath = pathLine(wasteValueValues, wasteValueMax);
 	$: wasteCountPath = pathLine(wasteCountValues, wasteCountMax);
 
-	// hover per chart
 	let hoverIdx = -1;
 	function onMove(e) {
 		const svg = e.currentTarget;
@@ -140,172 +142,176 @@
 	<SummaryCard title="Ausgaben" value={chf(data.totals?.spent)} icon="🛒" variant="money" />
 	<SummaryCard title="Weggeworfen (CHF)" value={chf(data.totals?.wasteValue)} icon="💸" variant="warning" />
 	<SummaryCard title="Weggeworfen (Anzahl)" value={String(data.totals?.wasteCount ?? 0)} icon="🗑️" variant="warning" />
+	<SummaryCard title="Waste-Quote" value={pct(data.wasteQuote)} subtitle="Wert weggeworfen / Ausgaben" icon="📉" variant="warning" />
 </section>
 
-{#if weekly.length === 0}
-	<p class="empty">Keine Daten im gewählten Zeitraum.</p>
-{:else}
-	<section class="stack">
-		<!-- Chart 1 -->
-		<article class="panel">
-			<header class="panel-header">
-				<div>
-					<h2>Ausgaben pro Woche</h2>
-					<p class="hint">Summe aller Käufe pro Woche (CHF)</p>
-				</div>
-				<div class="meta">
-					<span class="badge blue">● Ausgaben</span>
-					<span>Max {chf(spentStat.max)} · Ø {chf(spentStat.avg)}</span>
-				</div>
-			</header>
+<section class="stack">
+	<!-- TOP 5 -->
+	<article class="panel">
+		<header class="panel-header">
+			<div>
+				<h2>Top 5 Wegwerf-Produkte</h2>
+				<p class="hint">Sortiert nach weggeworfenem Wert (CHF) im Zeitraum.</p>
+			</div>
+			<div class="meta">
+				<span class="badge red">● disposed</span>
+			</div>
+		</header>
 
-			<svg
-				viewBox={`0 0 ${W} ${H}`}
-				class="svg"
-				on:mousemove={onMove}
-				on:mouseleave={onLeave}
-				role="img"
-				aria-label="Ausgaben pro Woche"
-			>
-				{#each Array(GRID_Y + 1) as _, gi (gi)}
-					{@const v = (spentMax * gi) / GRID_Y}
-					{@const yy = y(v, spentMax)}
-					<line x1={P.l} y1={yy} x2={W - P.r} y2={yy} class="grid" />
-					<text x={P.l - 12} y={yy + 5} text-anchor="end" class="yTick">{fmtYCHF(v)}</text>
+		{#if topWaste.length === 0}
+			<p class="empty">Noch keine Entsorgungen im Zeitraum.</p>
+		{:else}
+			<div class="top-list">
+				{#each topWaste as item (item.normalizedName)}
+					<div class="top-row">
+						<div class="left">
+							<p class="name">{item.name}</p>
+							<p class="sub">{item.count} Stück · {chf(item.value)} weggeworfen</p>
+						</div>
+						<div class="right">
+							<span class="pill">{chf(item.value)}</span>
+						</div>
+					</div>
 				{/each}
+			</div>
+		{/if}
+	</article>
 
-				<line x1={P.l} y1={P.t} x2={P.l} y2={H - P.b} class="axis" />
-				<line x1={P.l} y1={H - P.b} x2={W - P.r} y2={H - P.b} class="axis" />
+	<!-- Chart 1 -->
+	<article class="panel">
+		<header class="panel-header">
+			<div>
+				<h2>Ausgaben pro Woche</h2>
+				<p class="hint">Summe aller Käufe pro Woche (CHF)</p>
+			</div>
+			<div class="meta">
+				<span class="badge blue">● Ausgaben</span>
+				<span>Max {chf(spentStat.max)} · Ø {chf(spentStat.avg)}</span>
+			</div>
+		</header>
 
-				<path d={spentPath} class="line blue" />
+		<svg viewBox={`0 0 ${W} ${H}`} class="svg" on:mousemove={onMove} on:mouseleave={onLeave}>
+			{#each Array(GRID_Y + 1) as _, gi (gi)}
+				{@const v = (spentMax * gi) / GRID_Y}
+				{@const yy = y(v, spentMax)}
+				<line x1={P.l} y1={yy} x2={W - P.r} y2={yy} class="grid" />
+				<text x={P.l - 12} y={yy + 5} text-anchor="end" class="yTick">{fmtYCHF(v)}</text>
+			{/each}
 
-				{#each weekly as w, i (w.week)}
-					{@const xx = x(i, weekly.length)}
-					{@const yy = y(spentValues[i], spentMax)}
-					<circle cx={xx} cy={yy} r="4" class="dot blue" />
+			<line x1={P.l} y1={P.t} x2={P.l} y2={H - P.b} class="axis" />
+			<line x1={P.l} y1={H - P.b} x2={W - P.r} y2={H - P.b} class="axis" />
 
-					{#if i % tickEvery(weekly.length) === 0}
-						<text x={xx} y={H - 16} text-anchor="middle" class="xTick">{fmtWeek(w.week)}</text>
-					{/if}
-				{/each}
+			<path d={spentPath} class="line blue" />
 
-				{#if hoverIdx >= 0}
-					{@const xx = x(hoverIdx, weekly.length)}
-					<line x1={xx} y1={P.t} x2={xx} y2={H - P.b} class="hoverLine" />
-					<circle cx={xx} cy={y(spentValues[hoverIdx], spentMax)} r="6" class="hoverDot blue">
-						<title>{tooltipAll(hoverIdx)}</title>
-					</circle>
+			{#each weekly as w, i (w.week)}
+				{@const xx = x(i, weekly.length)}
+				{@const yy = y(spentValues[i], spentMax)}
+				<circle cx={xx} cy={yy} r="4" class="dot blue" />
+				{#if i % tickEvery(weekly.length) === 0}
+					<text x={xx} y={H - 16} text-anchor="middle" class="xTick">{fmtWeek(w.week)}</text>
 				{/if}
-			</svg>
-		</article>
+			{/each}
 
-		<!-- Chart 2 -->
-		<article class="panel">
-			<header class="panel-header">
-				<div>
-					<h2>Weggeworfener Wert</h2>
-					<p class="hint">Summe aller Entsorgungen pro Woche (CHF)</p>
-				</div>
-				<div class="meta">
-					<span class="badge red">● Weggeworfen (CHF)</span>
-					<span>Max {chf(wasteValueStat.max)} · Ø {chf(wasteValueStat.avg)}</span>
-				</div>
-			</header>
+			{#if hoverIdx >= 0}
+				{@const xx = x(hoverIdx, weekly.length)}
+				<line x1={xx} y1={P.t} x2={xx} y2={H - P.b} class="hoverLine" />
+				<circle cx={xx} cy={y(spentValues[hoverIdx], spentMax)} r="6" class="hoverDot blue">
+					<title>{tooltipAll(hoverIdx)}</title>
+				</circle>
+			{/if}
+		</svg>
+	</article>
 
-			<svg
-				viewBox={`0 0 ${W} ${H}`}
-				class="svg"
-				on:mousemove={onMove}
-				on:mouseleave={onLeave}
-				role="img"
-				aria-label="Weggeworfener Wert pro Woche"
-			>
-				{#each Array(GRID_Y + 1) as _, gi (gi)}
-					{@const v = (wasteValueMax * gi) / GRID_Y}
-					{@const yy = y(v, wasteValueMax)}
-					<line x1={P.l} y1={yy} x2={W - P.r} y2={yy} class="grid" />
-					<text x={P.l - 12} y={yy + 5} text-anchor="end" class="yTick">{fmtYCHF(v)}</text>
-				{/each}
+	<!-- Chart 2 -->
+	<article class="panel">
+		<header class="panel-header">
+			<div>
+				<h2>Weggeworfener Wert</h2>
+				<p class="hint">Summe aller Entsorgungen pro Woche (CHF)</p>
+			</div>
+			<div class="meta">
+				<span class="badge red">● Weggeworfen (CHF)</span>
+				<span>Max {chf(wasteValueStat.max)} · Ø {chf(wasteValueStat.avg)}</span>
+			</div>
+		</header>
 
-				<line x1={P.l} y1={P.t} x2={P.l} y2={H - P.b} class="axis" />
-				<line x1={P.l} y1={H - P.b} x2={W - P.r} y2={H - P.b} class="axis" />
+		<svg viewBox={`0 0 ${W} ${H}`} class="svg" on:mousemove={onMove} on:mouseleave={onLeave}>
+			{#each Array(GRID_Y + 1) as _, gi (gi)}
+				{@const v = (wasteValueMax * gi) / GRID_Y}
+				{@const yy = y(v, wasteValueMax)}
+				<line x1={P.l} y1={yy} x2={W - P.r} y2={yy} class="grid" />
+				<text x={P.l - 12} y={yy + 5} text-anchor="end" class="yTick">{fmtYCHF(v)}</text>
+			{/each}
 
-				<path d={wasteValuePath} class="line red" />
+			<line x1={P.l} y1={P.t} x2={P.l} y2={H - P.b} class="axis" />
+			<line x1={P.l} y1={H - P.b} x2={W - P.r} y2={H - P.b} class="axis" />
 
-				{#each weekly as w, i (w.week)}
-					{@const xx = x(i, weekly.length)}
-					{@const yy = y(wasteValueValues[i], wasteValueMax)}
-					<circle cx={xx} cy={yy} r="4" class="dot red" />
+			<path d={wasteValuePath} class="line red" />
 
-					{#if i % tickEvery(weekly.length) === 0}
-						<text x={xx} y={H - 16} text-anchor="middle" class="xTick">{fmtWeek(w.week)}</text>
-					{/if}
-				{/each}
-
-				{#if hoverIdx >= 0}
-					{@const xx = x(hoverIdx, weekly.length)}
-					<line x1={xx} y1={P.t} x2={xx} y2={H - P.b} class="hoverLine" />
-					<circle cx={xx} cy={y(wasteValueValues[hoverIdx], wasteValueMax)} r="6" class="hoverDot red">
-						<title>{tooltipAll(hoverIdx)}</title>
-					</circle>
+			{#each weekly as w, i (w.week)}
+				{@const xx = x(i, weekly.length)}
+				{@const yy = y(wasteValueValues[i], wasteValueMax)}
+				<circle cx={xx} cy={yy} r="4" class="dot red" />
+				{#if i % tickEvery(weekly.length) === 0}
+					<text x={xx} y={H - 16} text-anchor="middle" class="xTick">{fmtWeek(w.week)}</text>
 				{/if}
-			</svg>
-		</article>
+			{/each}
 
-		<!-- Chart 3 -->
-		<article class="panel">
-			<header class="panel-header">
-				<div>
-					<h2>Weggeworfene Anzahl</h2>
-					<p class="hint">Entsorgte Produkte pro Woche (Stück / Packungen)</p>
-				</div>
-				<div class="meta">
-					<span class="badge orange">● Weggeworfen (Anzahl)</span>
-					<span>Max {wasteCountStat.max} · Ø {wasteCountStat.avg.toFixed(1)}</span>
-				</div>
-			</header>
+			{#if hoverIdx >= 0}
+				{@const xx = x(hoverIdx, weekly.length)}
+				<line x1={xx} y1={P.t} x2={xx} y2={H - P.b} class="hoverLine" />
+				<circle cx={xx} cy={y(wasteValueValues[hoverIdx], wasteValueMax)} r="6" class="hoverDot red">
+					<title>{tooltipAll(hoverIdx)}</title>
+				</circle>
+			{/if}
+		</svg>
+	</article>
 
-			<svg
-				viewBox={`0 0 ${W} ${H}`}
-				class="svg"
-				on:mousemove={onMove}
-				on:mouseleave={onLeave}
-				role="img"
-				aria-label="Weggeworfene Anzahl pro Woche"
-			>
-				{#each Array(GRID_Y + 1) as _, gi (gi)}
-					{@const v = (wasteCountMax * gi) / GRID_Y}
-					{@const yy = y(v, wasteCountMax)}
-					<line x1={P.l} y1={yy} x2={W - P.r} y2={yy} class="grid" />
-					<text x={P.l - 12} y={yy + 5} text-anchor="end" class="yTick">{fmtYCount(v)}</text>
-				{/each}
+	<!-- Chart 3 -->
+	<article class="panel">
+		<header class="panel-header">
+			<div>
+				<h2>Weggeworfene Anzahl</h2>
+				<p class="hint">Entsorgte Produkte pro Woche (Stück / Packungen)</p>
+			</div>
+			<div class="meta">
+				<span class="badge orange">● Weggeworfen (Anzahl)</span>
+				<span>Max {wasteCountStat.max} · Ø {wasteCountStat.avg.toFixed(1)}</span>
+			</div>
+		</header>
 
-				<line x1={P.l} y1={P.t} x2={P.l} y2={H - P.b} class="axis" />
-				<line x1={P.l} y1={H - P.b} x2={W - P.r} y2={H - P.b} class="axis" />
+		<svg viewBox={`0 0 ${W} ${H}`} class="svg" on:mousemove={onMove} on:mouseleave={onLeave}>
+			{#each Array(GRID_Y + 1) as _, gi (gi)}
+				{@const v = (wasteCountMax * gi) / GRID_Y}
+				{@const yy = y(v, wasteCountMax)}
+				<line x1={P.l} y1={yy} x2={W - P.r} y2={yy} class="grid" />
+				<text x={P.l - 12} y={yy + 5} text-anchor="end" class="yTick">{fmtYCount(v)}</text>
+			{/each}
 
-				<path d={wasteCountPath} class="line orange" />
+			<line x1={P.l} y1={P.t} x2={P.l} y2={H - P.b} class="axis" />
+			<line x1={P.l} y1={H - P.b} x2={W - P.r} y2={H - P.b} class="axis" />
 
-				{#each weekly as w, i (w.week)}
-					{@const xx = x(i, weekly.length)}
-					{@const yy = y(wasteCountValues[i], wasteCountMax)}
-					<circle cx={xx} cy={yy} r="4" class="dot orange" />
+			<path d={wasteCountPath} class="line orange" />
 
-					{#if i % tickEvery(weekly.length) === 0}
-						<text x={xx} y={H - 16} text-anchor="middle" class="xTick">{fmtWeek(w.week)}</text>
-					{/if}
-				{/each}
-
-				{#if hoverIdx >= 0}
-					{@const xx = x(hoverIdx, weekly.length)}
-					<line x1={xx} y1={P.t} x2={xx} y2={H - P.b} class="hoverLine" />
-					<circle cx={xx} cy={y(wasteCountValues[hoverIdx], wasteCountMax)} r="6" class="hoverDot orange">
-						<title>{tooltipAll(hoverIdx)}</title>
-					</circle>
+			{#each weekly as w, i (w.week)}
+				{@const xx = x(i, weekly.length)}
+				{@const yy = y(wasteCountValues[i], wasteCountMax)}
+				<circle cx={xx} cy={yy} r="4" class="dot orange" />
+				{#if i % tickEvery(weekly.length) === 0}
+					<text x={xx} y={H - 16} text-anchor="middle" class="xTick">{fmtWeek(w.week)}</text>
 				{/if}
-			</svg>
-		</article>
-	</section>
-{/if}
+			{/each}
+
+			{#if hoverIdx >= 0}
+				{@const xx = x(hoverIdx, weekly.length)}
+				<line x1={xx} y1={P.t} x2={xx} y2={H - P.b} class="hoverLine" />
+				<circle cx={xx} cy={y(wasteCountValues[hoverIdx], wasteCountMax)} r="6" class="hoverDot orange">
+					<title>{tooltipAll(hoverIdx)}</title>
+				</circle>
+			{/if}
+		</svg>
+	</article>
+</section>
 
 <style>
 	.header {
@@ -316,7 +322,6 @@
 		margin-bottom: 1rem;
 		flex-wrap: wrap;
 	}
-
 	.title h1 { margin: 0 0 0.25rem 0; font-size: 1.7rem; }
 	.subtitle { margin: 0; color: #6b7280; font-size: 0.92rem; }
 
@@ -424,5 +429,35 @@
 	.hoverDot.red { fill: #dc2626; }
 	.hoverDot.orange { fill: #d97706; }
 
+	.top-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.6rem;
+	}
+	.top-row {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 1rem;
+		padding: 0.65rem 0.8rem;
+		border: 1px solid #e5e7eb;
+		border-radius: 0.9rem;
+		background: #f9fafb;
+	}
+	.name { margin: 0; font-weight: 650; color: #111827; }
+	.sub { margin: 0.15rem 0 0 0; color: #6b7280; font-size: 0.9rem; }
+
+	.pill {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		padding: 0.25rem 0.55rem;
+		border-radius: 999px;
+		background: #fef2f2;
+		border: 1px solid #fecaca;
+		color: #b91c1c;
+		font-weight: 650;
+		white-space: nowrap;
+	}
 	.empty { color: #6b7280; }
 </style>
