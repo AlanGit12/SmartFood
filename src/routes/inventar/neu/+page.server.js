@@ -49,18 +49,15 @@ export async function load() {
 		}))
 	};
 }
-
 export const actions = {
 	default: async ({ request }) => {
 		const db = await getDb();
 		const fd = await request.formData();
 
-		// ✅ Achtung: im neu/+page.svelte heißt das Feld name="unit"
-		// Darum holen wir es hier als displayUnit aus "unit"
 		const name = String(fd.get('name') || '').trim();
 		const icon = String(fd.get('icon') || '🥕');
 
-		const displayUnit = String(fd.get('unit') || 'Stück'); // ✅ FIX: displayUnit ist jetzt definiert
+		const displayUnit = String(fd.get('unit') || 'Stück');
 		let amountPerUnitDisplay = safeNumber(fd.get('amountPerUnit'), 0);
 
 		const storageLocation = String(fd.get('storageLocation') || 'Kühlschrank');
@@ -76,10 +73,12 @@ export const actions = {
 			return fail(400, { message: 'Mindestens eine Variante wird benötigt.' });
 		}
 
-		// Einheit normalisieren (Pack-Logik)
+		const normalizedName = name.toLowerCase();
+
+		// Einheit normalisieren
 		const { packUnit, factorToBase } = normalizePackUnit(displayUnit);
 
-		// ✅ Regel: Stück => Menge pro Einheit ist immer 1
+		// Stück => 1
 		if (!packUnit) amountPerUnitDisplay = 1;
 		if (packUnit && (!amountPerUnitDisplay || amountPerUnitDisplay <= 0)) {
 			return fail(400, { message: 'Menge pro Einheit muss > 0 sein.' });
@@ -87,8 +86,8 @@ export const actions = {
 
 		const packSize = packUnit ? amountPerUnitDisplay * factorToBase : null;
 
-		// Varianten bauen (neues Modell)
-		const variants = quantities.map((q, i) => {
+		// Neue Varianten aus dem Formular (können mehrere Zeilen sein)
+		const incomingVariants = quantities.map((q, i) => {
 			const pieces = safeNumber(q, 0);
 			const exp = String(expirations[i] || '');
 
@@ -107,22 +106,157 @@ export const actions = {
 			};
 		});
 
-		const totalQuantity = packUnit
-			? variants.reduce((sum, v) => {
+		// -------------------------------------------------------
+		// ✅ MERGE statt immer insert:
+		// -------------------------------------------------------
+		const productsCol = db.collection('products');
+		const eventsCol = db.collection('productEvents');
+		const mergeKey = `${normalizedName}__${storageLocation}__${pricePerUnit.toFixed(2)}__${packUnit || 'piece'}__${packSize || 0}`;
+
+
+	const mergeQuery = {
+	normalizedName,
+	storageLocation,
+	pricePerUnit,
+	packUnit,
+	packSize
+};
+
+const existing = await productsCol.findOne(mergeQuery);
+
+
+		// helper: merge variants by expirationDate
+		function mergeVariants(existingVariants, incoming, isPack) {
+			const merged = [...(existingVariants ?? [])];
+
+			for (const v of incoming) {
+				const exp = String(v.expirationDate || '');
+				const idx = merged.findIndex((x) => String(x.expirationDate || '') === exp);
+
+				if (idx === -1) {
+					merged.push(v);
+					continue;
+				}
+
+				const target = { ...merged[idx] };
+
+				if (isPack) {
+					target.remainingAmount = safeNumber(target.remainingAmount, 0) + safeNumber(v.remainingAmount, 0);
+				} else {
+					target.piecesRemaining = safeNumber(target.piecesRemaining, 0) + safeNumber(v.piecesRemaining, 0);
+				}
+
+				merged[idx] = target;
+			}
+
+			// optional: leere raus
+			return merged.filter((x) => {
+				if (isPack) return safeNumber(x.remainingAmount, 0) > 0;
+				return safeNumber(x.piecesRemaining, 0) > 0;
+			});
+		}
+
+		function calcTotalQuantityLocal(variants) {
+			if (packUnit && packSize) {
+				return variants.reduce((sum, v) => {
 					const amt = safeNumber(v.remainingAmount, 0);
 					if (!packSize || amt <= 0) return sum;
 					return sum + Math.ceil(amt / packSize);
-			  }, 0)
-			: variants.reduce((sum, v) => sum + safeNumber(v.piecesRemaining, 0), 0);
+				}, 0);
+			}
+			return variants.reduce((sum, v) => sum + safeNumber(v.piecesRemaining, 0), 0);
+		}
 
-		const normalizedName = name.toLowerCase();
+		// Wie viele "Stück/Packungen" wurden durch diese Aktion hinzugefügt?
+		// Für Pack-Produkte zählen wir Zeilenmenge als "pieces" (quantity input)
+		const addedPieces = incomingVariants.reduce((sum, v) => {
+			if (packUnit && packSize) {
+				const amt = safeNumber(v.remainingAmount, 0);
+				if (!packSize || amt <= 0) return sum;
+				return sum + Math.ceil(amt / packSize);
+			}
+			return sum + safeNumber(v.piecesRemaining, 0);
+		}, 0);
 
-		// Produkt speichern
-		const insertRes = await db.collection('products').insertOne({
+		if (existing) {
+			// ✅ Merge mit vorhandenem Produkt
+			const existingPackUnit = existing.packUnit ?? null;
+			const existingPackSize = existing.packSize ?? null;
+
+			// Achtung: Falls jemand ein Produkt vorher als Stück angelegt hat und jetzt als ml speichert,
+			// ist das ein Datenbruch. Für MVP: wir überschreiben auf neuen Modus.
+			const isPack = Boolean(packUnit && packSize);
+
+			const mergedVariants = mergeVariants(existing.variants ?? [], incomingVariants, isPack);
+			const totalQuantity = calcTotalQuantityLocal(mergedVariants);
+
+			await productsCol.updateOne(
+				{ _id: existing._id },
+				{
+					$set: {
+						// Wir übernehmen Basisdaten vom neuen Eintrag (ihr könnt hier auch "nur wenn leer" machen)
+						name,
+						icon,
+						storageLocation,
+						pricePerUnit,
+
+						packUnit,
+						packSize,
+						displayUnit,
+						amountPerUnitDisplay,
+
+						variants: mergedVariants,
+						totalQuantity,
+						updatedAt: new Date()
+					}
+				}
+			);
+
+			// purchased event loggen (nur addedPieces)
+			if (addedPieces > 0 && pricePerUnit > 0) {
+				await eventsCol.insertOne({
+					productId: existing._id.toString(),
+					normalizedName,
+					name: existing.name ?? name,
+					type: 'purchased',
+					unit: 'Stück',
+					quantity: addedPieces,
+					value: addedPieces * pricePerUnit,
+					createdAt: new Date()
+				});
+			}
+
+			// Template updaten
+			await db.collection('productTemplates').updateOne(
+				{ normalizedName },
+				{
+					$set: {
+						name,
+						normalizedName,
+						icon,
+						displayUnit,
+						amountPerUnitDisplay,
+						packUnit,
+						packSize,
+						defaultStorageLocation: storageLocation,
+						defaultPricePerUnit: pricePerUnit,
+						updatedAt: new Date()
+					},
+					$setOnInsert: { createdAt: new Date() }
+				},
+				{ upsert: true }
+			);
+
+			throw redirect(303, '/inventar');
+		}
+
+		// ✅ Kein existing => neues Produkt anlegen (wie vorher)
+		const totalQuantity = calcTotalQuantityLocal(incomingVariants);
+
+		const insertRes = await productsCol.insertOne({
 			normalizedName,
 			name,
 			icon,
-
 			storageLocation,
 			pricePerUnit,
 
@@ -131,28 +265,26 @@ export const actions = {
 			displayUnit,
 			amountPerUnitDisplay,
 
-			variants,
+			variants: incomingVariants,
 			totalQuantity,
 
 			createdAt: new Date(),
 			updatedAt: new Date()
 		});
 
-		// ✅ purchased event loggen (damit Statistik "Ausgegeben" stimmt)
-		if (totalQuantity > 0 && pricePerUnit > 0) {
-			await db.collection('productEvents').insertOne({
+		if (addedPieces > 0 && pricePerUnit > 0) {
+			await eventsCol.insertOne({
 				productId: insertRes.insertedId.toString(),
 				normalizedName,
 				name,
 				type: 'purchased',
-				unit: 'Stück', // Packs/Stück zählen wir in Statistik als "Stück"
-				quantity: totalQuantity,
-				value: totalQuantity * pricePerUnit,
+				unit: 'Stück',
+				quantity: addedPieces,
+				value: addedPieces * pricePerUnit,
 				createdAt: new Date()
 			});
 		}
 
-		// ✅ Template updaten/erstellen (damit Vorschläge bleiben)
 		await db.collection('productTemplates').updateOne(
 			{ normalizedName },
 			{
@@ -160,12 +292,10 @@ export const actions = {
 					name,
 					normalizedName,
 					icon,
-
 					displayUnit,
 					amountPerUnitDisplay,
 					packUnit,
 					packSize,
-
 					defaultStorageLocation: storageLocation,
 					defaultPricePerUnit: pricePerUnit,
 					updatedAt: new Date()
@@ -178,3 +308,4 @@ export const actions = {
 		throw redirect(303, '/inventar');
 	}
 };
+
