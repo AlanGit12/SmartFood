@@ -2,6 +2,11 @@ import { getDb } from '$lib/server/db.js';
 import { fail, redirect } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 
+
+export const prerender = false;
+export const ssr = true;
+
+
 function requireAdmin(fd) {
 	const token = String(fd.get('token') || '');
 	const expected = env.ADMIN_TOKEN;
