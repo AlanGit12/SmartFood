@@ -5,8 +5,6 @@
     const navItems = [
         { name: 'Inventar', path: '/inventar' },
         { name: 'Statistiken', path: '/statistiken' },
-        { name: 'Wocheneinkauf', path: '/wocheneinkauf' },
-        { name: 'Meine Rezepte', path: '/rezepte' },
         { name: 'Meine Produktvorlagen', path: '/vorlagen' },
         { name: 'Lagerorte', path: '/lagerorte' },
 
