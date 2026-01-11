@@ -1,6 +1,7 @@
 import { getDb } from '$lib/server/db.js';
 import { ObjectId } from 'mongodb';
 import { error, redirect, fail } from '@sveltejs/kit';
+import { getStorageLocations } from '$lib/server/storageLocations.js';
 
 function roundToStep(value, step) {
 	return Math.round(value / step) * step;
@@ -31,7 +32,7 @@ function idQuery(id) {
 	}
 }
 
-// ✅ Date/ISO/string -> "YYYY-MM-DD" (für <input type="date">)
+// Date/ISO/string -> "YYYY-MM-DD" (für <input type="date">)
 function toDateInputValue(v) {
 	if (!v) return '';
 	if (v instanceof Date) return v.toISOString().slice(0, 10);
@@ -42,10 +43,12 @@ function toDateInputValue(v) {
 export async function load({ params }) {
 	const db = await getDb();
 
+	// ✅ Lagerorte laden und mitgeben
+	const locations = await getStorageLocations();
+
 	const doc = await db.collection('products').findOne(idQuery(params.id));
 	if (!doc) throw error(404, 'Produkt nicht gefunden');
 
-	// ✅ HIER fehlte es bei dir:
 	const packUnit = doc.packUnit ?? null;
 	const packSize = doc.packSize ?? null;
 	const displayUnit = doc.displayUnit ?? 'Stück';
@@ -77,13 +80,14 @@ export async function load({ params }) {
 		product: {
 			id: doc._id.toString(),
 			name: doc.name,
-			icon: doc.icon ?? '🥕',
+			icon: doc.icon ?? '🍽️', // ✅ Default geändert
 			unit: displayUnit,
 			storageLocation: doc.storageLocation ?? 'Kühlschrank',
 			pricePerUnit: doc.pricePerUnit ?? 0,
 			amountPerUnit: amountPerUnitDisplay,
 			variants
-		}
+		},
+		locations // ✅ wichtig, damit Bearbeiten ein <select> machen kann
 	};
 }
 
@@ -92,7 +96,11 @@ export const actions = {
 		const formData = await request.formData();
 
 		const name = String(formData.get('name') || '').trim();
-		const icon = String(formData.get('icon') || '🥕').trim() || '🥕';
+
+		// ✅ Default geändert: wenn leer -> 🍽️
+		const iconRaw = String(formData.get('icon') || '').trim();
+		const icon = iconRaw || '🍽️';
+
 		const displayUnit = String(formData.get('unit') || 'Stück');
 		const storageLocation = String(formData.get('storageLocation') || '');
 
@@ -117,7 +125,7 @@ export const actions = {
 
 		const { packUnit, factorToBase } = normalizePackUnit(displayUnit);
 
-		// ✅ Regel: Stück => immer 1
+		// Stück => immer 1
 		if (!packUnit) amountPerUnitDisplay = 1;
 
 		const packSize = packUnit ? amountPerUnitDisplay * factorToBase : null;
@@ -159,7 +167,7 @@ export const actions = {
 
 		const normalizedName = name.toLowerCase();
 
-		// ✅ Delta => purchased
+		// Delta => purchased
 		const oldTotal = Number(oldDoc.totalQuantity || 0);
 		const newTotal = Number(totalQuantity || 0);
 		const delta = newTotal - oldTotal;

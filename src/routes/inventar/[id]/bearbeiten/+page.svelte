@@ -1,37 +1,39 @@
 <script>
-	import { getFoodEmoji } from '$lib/emoji-food-map.js';
-	import '$lib/styles/forms.css';
+	import { getFoodEmoji } from "$lib/emoji-food-map.js";
+	import "$lib/styles/forms.css";
 
 	export let data;
-	const { product, locations = [] } = data;
+	const locations = data.locations ?? [];
+	const { product = [] } = data;
 
 	let name = product.name;
-	let icon = product.icon ?? '🥕';
-	let unit = product.unit ?? 'Stück';
+	let icon = product.icon ?? "🥕";
+	let unit = product.unit ?? "Stück";
 	let amountPerUnit = product.amountPerUnit ?? 1;
 
 	// Falls du locations schon im load mitgibst: Dropdown, sonst Textfeld fallback
-	let storageLocation = product.storageLocation ?? (locations[0]?.name ?? 'Kühlschrank');
+	let storageLocation =
+		product.storageLocation ?? locations[0]?.name ?? "Kühlschrank";
 
 	let pricePerUnit = product.pricePerUnit ?? 0;
 
 	let variants =
 		product.variants && product.variants.length
 			? product.variants
-			: [{ id: 1, quantity: 1, expirationDate: '' }];
+			: [{ id: 1, quantity: 1, expirationDate: "" }];
 
 	let nextId = variants.length + 1;
 
 	let iconTouched = false;
 
 	// Stück => Menge immer 1
-	$: if (unit === 'Stück') {
+	$: if (unit === "Stück") {
 		amountPerUnit = 1;
 	}
 
 	// Auto-Emoji nur wenn User nicht manuell editiert
 	$: if (!iconTouched) {
-		icon = getFoodEmoji(name, icon || '🍽️');
+		icon = getFoodEmoji(name, icon || "🍽️");
 	}
 
 	function onIconInput(e) {
@@ -40,7 +42,10 @@
 	}
 
 	function addVariant() {
-		variants = [...variants, { id: nextId++, quantity: 1, expirationDate: '' }];
+		variants = [
+			...variants,
+			{ id: nextId++, quantity: 1, expirationDate: "" },
+		];
 	}
 
 	function removeVariant(id) {
@@ -64,12 +69,25 @@
 		<div class="grid">
 			<div class="field">
 				<label for="name">Produktname</label>
-				<input id="name" name="name" type="text" bind:value={name} required />
+				<input
+					id="name"
+					name="name"
+					type="text"
+					bind:value={name}
+					required
+				/>
 			</div>
 
 			<div class="field">
 				<label for="icon">Icon (Emoji)</label>
-				<input id="icon" name="icon" type="text" maxlength="2" value={icon} on:input={onIconInput} />
+				<input
+					id="icon"
+					name="icon"
+					type="text"
+					maxlength="2"
+					value={icon}
+					on:input={onIconInput}
+				/>
 			</div>
 
 			<div class="field">
@@ -99,22 +117,15 @@
 
 			<div class="field">
 				<label for="storageLocation">Aufbewahrungsort</label>
-
-				{#if locations.length > 0}
-					<select id="storageLocation" name="storageLocation" bind:value={storageLocation}>
-						{#each locations as loc (loc.id)}
-							<option value={loc.name}>{loc.name}</option>
-						{/each}
-					</select>
-				{:else}
-					<input
-						id="storageLocation"
-						name="storageLocation"
-						type="text"
-						bind:value={storageLocation}
-						required
-					/>
-				{/if}
+				<select
+					id="storageLocation"
+					name="storageLocation"
+					bind:value={storageLocation}
+				>
+					{#each locations as loc (loc.id)}
+						<option value={loc.name}>{loc.name}</option>
+					{/each}
+				</select>
 			</div>
 
 			<div class="field">
@@ -151,7 +162,9 @@
 					bind:value={v.quantity}
 				/>
 
-				<label class="sr-only" for={`variant-exp-${v.id}`}>Ablaufdatum</label>
+				<label class="sr-only" for={`variant-exp-${v.id}`}
+					>Ablaufdatum</label
+				>
 				<input
 					id={`variant-exp-${v.id}`}
 					type="date"
@@ -175,7 +188,9 @@
 
 	<section class="form-actions">
 		<a href="/inventar" class="secondary-button">Abbrechen</a>
-		<button type="submit" class="primary-button">Änderungen speichern</button>
+		<button type="submit" class="primary-button"
+			>Änderungen speichern</button
+		>
 	</section>
 </form>
 

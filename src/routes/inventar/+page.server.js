@@ -33,7 +33,7 @@ export async function load() {
 			id: doc._id.toString(),
 			normalizedName: doc.normalizedName ?? doc.name?.toLowerCase() ?? '',
 			name: doc.name,
-			icon: doc.icon ?? '🥕',
+			icon: doc.icon ?? '🍽️',
 
 			storageLocation: doc.storageLocation ?? 'Kühlschrank',
 			pricePerUnit: doc.pricePerUnit ?? 0,
