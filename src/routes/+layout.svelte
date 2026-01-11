@@ -7,6 +7,8 @@
         { name: 'Statistiken', path: '/statistiken' },
         { name: 'Meine Produktvorlagen', path: '/vorlagen' },
         { name: 'Lagerorte', path: '/lagerorte' },
+        { name: 'Admin Reset', path: '/admin/reset' },
+
 
 
     ];
