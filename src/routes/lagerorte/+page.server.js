@@ -59,41 +59,53 @@ export const actions = {
 		throw redirect(303, '/lagerorte');
 	},
 
-	rename: async ({ request }) => {
-		const db = await getDb();
-		const fd = await request.formData();
+rename: async ({ request }) => {
+	const db = await getDb();
+	const fd = await request.formData();
 
-		const id = String(fd.get('id') || '');
-		const name = normName(fd.get('name'));
+	const id = String(fd.get('id') || '');
+	const name = normName(fd.get('name'));
 
-		if (!id) return fail(400, { message: 'ID fehlt.' });
-		if (!name) return fail(400, { message: 'Name fehlt.' });
+	if (!id) return fail(400, { message: 'ID fehlt.' });
+	if (!name) return fail(400, { message: 'Name fehlt.' });
 
-		let _id;
-		try {
-			_id = new ObjectId(id);
-		} catch {
-			return fail(400, { message: 'Ungültige ID.' });
-		}
+	let _id;
+	try {
+		_id = new ObjectId(id);
+	} catch {
+		return fail(400, { message: 'Ungültige ID.' });
+	}
 
-		const col = db.collection('storageLocations');
+	const col = db.collection('storageLocations');
 
-		const exists = await col.findOne({ name, _id: { $ne: _id } });
-		if (exists) return fail(400, { message: 'Dieser Name wird bereits verwendet.' });
+	// ✅ alten Namen VOR dem Update holen (wichtig!)
+	const oldDoc = await col.findOne({ _id });
+	if (!oldDoc) return fail(404, { message: 'Lagerort nicht gefunden.' });
 
-		await col.updateOne(
-			{ _id },
-			{ $set: { name, updatedAt: new Date() } }
-		);
+	const oldName = oldDoc.name;
 
-		// Optional: Produkte/Template mitziehen, damit alles konsistent bleibt
-		// (nur wenn ihr Lagerorte als reinen String speichert)
-		const old = await col.findOne({ _id });
-		// Achtung: old ist nach Update schon neu – wenn du "oldName" willst,
-		// müssten wir es vorher lesen. Lass es deshalb erstmal weg.
+	// duplicate name verhindern (außer es ist derselbe Datensatz)
+	const exists = await col.findOne({ name, _id: { $ne: _id } });
+	if (exists) return fail(400, { message: 'Dieser Name wird bereits verwendet.' });
 
-		throw redirect(303, '/lagerorte');
-	},
+	// 1) storageLocations umbenennen
+	await col.updateOne({ _id }, { $set: { name, updatedAt: new Date() } });
+
+	// 2) Produkte mitziehen (weil storageLocation bei dir ein String ist)
+	await db.collection('products').updateMany(
+		{ storageLocation: oldName },
+		{ $set: { storageLocation: name, updatedAt: new Date() } }
+	);
+
+	// 3) Templates mitziehen
+	await db.collection('productTemplates').updateMany(
+		{ defaultStorageLocation: oldName },
+		{ $set: { defaultStorageLocation: name, updatedAt: new Date() } }
+	);
+
+	throw redirect(303, '/lagerorte');
+},
+
 
 	delete: async ({ request }) => {
 		const db = await getDb();

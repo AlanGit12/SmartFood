@@ -1,15 +1,14 @@
 <script>
+	import { getFoodEmoji } from '$lib/emoji-food-map.js';
+
 	export let data;
 
-	// ----------------------------
-	// Templates
-	// ----------------------------
+	// Templates + Lagerorte aus server load
 	let templates = data.templates ?? [];
+	let locations = data.locations ?? [];
 	let selectedTemplateId = '';
 
-	// ----------------------------
 	// Formular-State
-	// ----------------------------
 	let name = '';
 	let icon = '🥕';
 	let unit = 'Stück';
@@ -17,39 +16,42 @@
 	let storageLocation = 'Kühlschrank';
 	let pricePerUnit = 0;
 
-	// Varianten (mind. eine)
+	let iconTouched = false;
+
+	// Varianten
 	let variants = [{ id: 1, quantity: 1, expirationDate: '' }];
 	let nextVariantId = 2;
 
-	// ----------------------------
-	// Reaktiv: Stück => immer 1
-	// ----------------------------
-	$: if (unit === 'Stück') {
-		amountPerUnit = 1;
+	// Stück => Menge immer 1
+	$: if (unit === 'Stück') amountPerUnit = 1;
+
+	// ✅ Auto-Emoji nur wenn User nicht manuell editiert hat
+	$: if (!iconTouched) {
+		icon = getFoodEmoji(name, icon || '🍽️');
 	}
 
-	// ----------------------------
-	// Template anwenden
-	// ----------------------------
+	function onIconInput(e) {
+		iconTouched = true;
+		icon = e.currentTarget.value;
+	}
+
 	function applyTemplateById(id) {
 		selectedTemplateId = id;
 		if (!id) return;
 
 		const tpl = templates.find((t) => String(t.id) === String(id));
-		if (!tpl) {
-			console.warn('Template nicht gefunden:', id);
-			return;
-		}
+		if (!tpl) return;
 
-		// ✅ Alles übernehmen
 		name = tpl.name ?? name;
+
+		// Template-Icon setzen => gilt als manuell gewählt
 		icon = tpl.icon ?? icon;
+		iconTouched = true;
 
 		unit = tpl.displayUnit ?? unit;
 
-		if (unit === 'Stück') {
-			amountPerUnit = 1;
-		} else {
+		if (unit === 'Stück') amountPerUnit = 1;
+		else {
 			const v = Number(tpl.amountPerUnitDisplay ?? 0);
 			if (Number.isFinite(v) && v > 0) amountPerUnit = v;
 		}
@@ -60,14 +62,8 @@
 		if (Number.isFinite(p)) pricePerUnit = p;
 	}
 
-	// ----------------------------
-	// Varianten-Handling
-	// ----------------------------
 	function addVariant() {
-		variants = [
-			...variants,
-			{ id: nextVariantId++, quantity: 1, expirationDate: '' }
-		];
+		variants = [...variants, { id: nextVariantId++, quantity: 1, expirationDate: '' }];
 	}
 
 	function removeVariant(id) {
@@ -76,10 +72,13 @@
 	}
 </script>
 
+
 <section class="page-header">
 	<div>
 		<h1>Produkt hinzufügen</h1>
-		<p class="subtitle">Erstelle ein neues Produkt oder nutze eine Vorlage.</p>
+		<p class="subtitle">
+			Erstelle ein neues Produkt oder nutze eine Vorlage.
+		</p>
 	</div>
 	<a href="/inventar" class="secondary-button">Zurück</a>
 </section>
@@ -101,7 +100,8 @@
 				<option value="">– Keine Vorlage –</option>
 				{#each templates as tpl (tpl.id)}
 					<option value={tpl.id}>
-						{tpl.icon} {tpl.name}
+						{tpl.icon}
+						{tpl.name}
 					</option>
 				{/each}
 			</select>
@@ -122,7 +122,13 @@
 
 			<div class="field">
 				<label for="icon">Icon</label>
-				<input id="icon" name="icon" bind:value={icon} maxlength="2" />
+				<input
+					id="icon"
+					name="icon"
+					value={icon}
+					on:input={onIconInput}
+					maxlength="2"
+				/>
 			</div>
 
 			<div class="field">
@@ -156,9 +162,9 @@
 					name="storageLocation"
 					bind:value={storageLocation}
 				>
-					<option value="Kühlschrank">Kühlschrank</option>
-					<option value="Vorratsschrank">Vorratsschrank</option>
-					<option value="Tiefkühler">Tiefkühler</option>
+					{#each locations as loc (loc.id)}
+						<option value={loc.name}>{loc.name}</option>
+					{/each}
 				</select>
 			</div>
 

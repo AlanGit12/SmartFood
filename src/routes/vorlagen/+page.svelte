@@ -1,10 +1,10 @@
 <script>
     export let data;
 
-    let newUnit = 'Stück';
-	let newAmount = 1;
+    let newUnit = "Stück";
+    let newAmount = 1;
 
-	$: if (newUnit === 'Stück') newAmount = 1
+    $: if (newUnit === "Stück") newAmount = 1;
 
     let q = "";
 
@@ -41,7 +41,7 @@
 
         <div class="field">
             <label for="new_unit">Einheit</label>
-            <select id="new_unit" name="displayUnit">
+            <select id="new_unit" name="displayUnit" bind:value={newUnit}>
                 <option value="Stück">Stück</option>
                 <option value="g">g</option>
                 <option value="kg">kg</option>
@@ -58,17 +58,17 @@
                 type="number"
                 step="0.01"
                 min="0.01"
-               bind:value={newAmount}
-	disabled={newUnit === 'Stück'}
+                bind:value={newAmount}
+                disabled={newUnit === "Stück"}
             />
         </div>
 
         <div class="field">
             <label for="new_loc">Lagerort</label>
             <select id="new_loc" name="defaultStorageLocation">
-                <option value="Kühlschrank">Kühlschrank</option>
-                <option value="Vorratsschrank">Vorratsschrank</option>
-                <option value="Tiefkühler">Tiefkühler</option>
+                {#each locations as loc (loc.id)}
+                    <option value={loc.name}>{loc.name}</option>
+                {/each}
             </select>
         </div>
 
@@ -186,15 +186,11 @@
                                     name="defaultStorageLocation"
                                     value={t.defaultStorageLocation}
                                 >
-                                    <option value="Kühlschrank"
-                                        >Kühlschrank</option
-                                    >
-                                    <option value="Vorratsschrank"
-                                        >Vorratsschrank</option
-                                    >
-                                    <option value="Tiefkühler"
-                                        >Tiefkühler</option
-                                    >
+                                    {#each locations as loc (loc.id)}
+                                        <option value={loc.name}
+                                            >{loc.name}</option
+                                        >
+                                    {/each}
                                 </select>
                             </div>
 

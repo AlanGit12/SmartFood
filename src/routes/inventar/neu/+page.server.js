@@ -1,5 +1,7 @@
 import { getDb } from '$lib/server/db.js';
 import { fail, redirect } from '@sveltejs/kit';
+import { getStorageLocations } from '$lib/server/storageLocations.js';
+import { getFoodEmoji } from '$lib/emoji-food-map.js';
 
 function roundToStep(value, step) {
 	return Math.round(value / step) * step;
@@ -26,13 +28,11 @@ function safeNumber(v, fallback = 0) {
 	return Number.isFinite(n) ? n : fallback;
 }
 
-// ----------------------------
-// LOAD: Templates für Vorschläge
-// ----------------------------
 export async function load() {
 	const db = await getDb();
 
 	const templates = await db.collection('productTemplates').find({}).sort({ name: 1 }).toArray();
+	const locations = await getStorageLocations();
 
 	return {
 		templates: templates.map((t) => ({
@@ -40,13 +40,12 @@ export async function load() {
 			name: t.name ?? '',
 			normalizedName: t.normalizedName ?? (t.name ?? '').toLowerCase(),
 			icon: t.icon ?? '🥕',
-
 			displayUnit: t.displayUnit ?? 'Stück',
 			amountPerUnitDisplay: safeNumber(t.amountPerUnitDisplay, 1),
-
 			defaultStorageLocation: t.defaultStorageLocation ?? 'Kühlschrank',
 			defaultPricePerUnit: safeNumber(t.defaultPricePerUnit, 0)
-		}))
+		})),
+		locations
 	};
 }
 
@@ -56,9 +55,12 @@ export const actions = {
 		const fd = await request.formData();
 
 		const name = String(fd.get('name') || '').trim();
-		const icon = String(fd.get('icon') || '🥕');
+		if (!name) return fail(400, { message: 'Name fehlt.' });
 
-		// ✅ Achtung: im neu/+page.svelte heißt das Feld name="unit"
+		// ✅ Emoji-Fallback sauber
+		const iconRaw = String(fd.get('icon') || '').trim();
+		const icon = iconRaw || getFoodEmoji(name, '🥕');
+
 		const displayUnit = String(fd.get('unit') || 'Stück');
 		let amountPerUnitDisplay = safeNumber(fd.get('amountPerUnit'), 0);
 
@@ -70,17 +72,15 @@ export const actions = {
 		const quantities = fd.getAll('variant_quantity');
 		const expirations = fd.getAll('variant_expirationDate');
 
-		if (!name) return fail(400, { message: 'Name fehlt.' });
 		if (!quantities.length || !expirations.length) {
 			return fail(400, { message: 'Mindestens eine Variante wird benötigt.' });
 		}
 
 		const normalizedName = name.toLowerCase();
 
-		// Einheit normalisieren
 		const { packUnit, factorToBase } = normalizePackUnit(displayUnit);
 
-		// ✅ Regel: Stück => amountPerUnitDisplay immer 1
+		// Stück => amountPerUnitDisplay immer 1
 		if (!packUnit) amountPerUnitDisplay = 1;
 
 		if (packUnit && (!amountPerUnitDisplay || amountPerUnitDisplay <= 0)) {
@@ -90,10 +90,6 @@ export const actions = {
 		const packSize = packUnit ? amountPerUnitDisplay * factorToBase : null;
 		const isPack = Boolean(packUnit && packSize);
 
-		// ----------------------------
-		// Incoming variants aus Formular
-		// quantity-Feld ist "Stück/Packungen" in der UI
-		// ----------------------------
 		const incomingVariants = quantities.map((q, i) => {
 			const pieces = safeNumber(q, 0);
 			const exp = String(expirations[i] || '');
@@ -113,7 +109,6 @@ export const actions = {
 			};
 		});
 
-		// Wie viele Stück/Packungen wurden neu hinzugefügt?
 		const addedPieces = incomingVariants.reduce((sum, v) => {
 			if (isPack) {
 				const amt = safeNumber(v.remainingAmount, 0);
@@ -124,25 +119,13 @@ export const actions = {
 			return sum + safeNumber(v.piecesRemaining, 0);
 		}, 0);
 
-		// ----------------------------
-		// Merge-Regel:
-		// gleiche Card nur wenn:
-		// normalizedName + storageLocation + pricePerUnit + packUnit + packSize gleich
-		// ----------------------------
 		const productsCol = db.collection('products');
 		const eventsCol = db.collection('productEvents');
 
-		const mergeQuery = {
-			normalizedName,
-			storageLocation,
-			pricePerUnit,
-			packUnit,
-			packSize
-		};
-
+		// Merge-Regel: gleiche Card nur wenn diese Felder gleich
+		const mergeQuery = { normalizedName, storageLocation, pricePerUnit, packUnit, packSize };
 		const existing = await productsCol.findOne(mergeQuery);
 
-		// Merge helper (nach expirationDate)
 		function mergeVariants(existingVariants, incoming, isPackProduct) {
 			const merged = [...(existingVariants ?? [])];
 
@@ -152,25 +135,15 @@ export const actions = {
 
 				if (idx === -1) {
 					merged.push(v);
-					continue;
-				}
-
-				const t = { ...merged[idx] };
-
-				if (isPackProduct) {
-					t.remainingAmount = safeNumber(t.remainingAmount, 0) + safeNumber(v.remainingAmount, 0);
 				} else {
-					t.piecesRemaining = safeNumber(t.piecesRemaining, 0) + safeNumber(v.piecesRemaining, 0);
+					const t = { ...merged[idx] };
+					if (isPackProduct) t.remainingAmount = safeNumber(t.remainingAmount, 0) + safeNumber(v.remainingAmount, 0);
+					else t.piecesRemaining = safeNumber(t.piecesRemaining, 0) + safeNumber(v.piecesRemaining, 0);
+					merged[idx] = t;
 				}
-
-				merged[idx] = t;
 			}
 
-			// leere Varianten raus
-			return merged.filter((x) => {
-				if (isPackProduct) return safeNumber(x.remainingAmount, 0) > 0;
-				return safeNumber(x.piecesRemaining, 0) > 0;
-			});
+			return merged.filter((x) => (isPackProduct ? safeNumber(x.remainingAmount, 0) > 0 : safeNumber(x.piecesRemaining, 0) > 0));
 		}
 
 		function calcTotalQuantity(variants) {
@@ -188,9 +161,7 @@ export const actions = {
 			return variants.reduce((sum, v) => sum + safeNumber(v.piecesRemaining, 0), 0);
 		}
 
-		// ----------------------------
-		// A) EXISTING => MERGE
-		// ----------------------------
+		// A) Existing => merge
 		if (existing) {
 			const mergedVariants = mergeVariants(existing.variants ?? [], incomingVariants, isPack);
 			const totalQuantity = calcTotalQuantity(mergedVariants);
@@ -199,18 +170,14 @@ export const actions = {
 				{ _id: existing._id },
 				{
 					$set: {
-						// Wir halten Name/Icon auf dem neuesten Stand (optional)
 						name,
 						icon,
-
-						// mergeQuery-Felder bleiben identisch, daher update ok:
 						storageLocation,
 						pricePerUnit,
 						packUnit,
 						packSize,
 						displayUnit,
 						amountPerUnitDisplay,
-
 						variants: mergedVariants,
 						totalQuantity,
 						updatedAt: new Date()
@@ -218,7 +185,6 @@ export const actions = {
 				}
 			);
 
-			// purchased event (nur NEU hinzugefügt)
 			if (addedPieces > 0 && pricePerUnit > 0) {
 				await eventsCol.insertOne({
 					productId: existing._id.toString(),
@@ -233,7 +199,6 @@ export const actions = {
 				});
 			}
 
-			// Template updaten/setzen
 			await db.collection('productTemplates').updateOne(
 				{ normalizedName },
 				{
@@ -257,32 +222,25 @@ export const actions = {
 			throw redirect(303, '/inventar');
 		}
 
-		// ----------------------------
-		// B) NEW => INSERT
-		// ----------------------------
+		// B) New => insert
 		const totalQuantity = calcTotalQuantity(incomingVariants);
 
 		const insertRes = await productsCol.insertOne({
 			normalizedName,
 			name,
 			icon,
-
 			storageLocation,
 			pricePerUnit,
-
 			packUnit,
 			packSize,
 			displayUnit,
 			amountPerUnitDisplay,
-
 			variants: incomingVariants,
 			totalQuantity,
-
 			createdAt: new Date(),
 			updatedAt: new Date()
 		});
 
-		// purchased event
 		if (addedPieces > 0 && pricePerUnit > 0) {
 			await eventsCol.insertOne({
 				productId: insertRes.insertedId.toString(),
@@ -297,7 +255,6 @@ export const actions = {
 			});
 		}
 
-		// Template updaten/setzen
 		await db.collection('productTemplates').updateOne(
 			{ normalizedName },
 			{

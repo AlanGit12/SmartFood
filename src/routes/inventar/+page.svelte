@@ -3,42 +3,28 @@
 	import { browser } from '$app/environment';
 	import ProductCard from '$lib/components/ProductCard.svelte';
 	import SummaryCard from '$lib/components/SummaryCard.svelte';
-import { MS_PER_DAY, utcToday, toUtcDay, getEarliestExpirationUtc } from '$lib/utils/date.js';
+	import { MS_PER_DAY, utcToday, toUtcDay, getEarliestExpirationUtc } from '$lib/utils/date.js';
 
 	export let data;
-	const { products } = data;
+	const { products = [], locations = [] } = data;
 
 	let searchTerm = '';
 	let storageFilter = 'all';
-
-	/**
-	 * priceFilter:
-	 * - all      -> keine Sortierung, keine Preisfilterung
-	 * - allAsc   -> keine Preisfilterung, Sortierung nach Gesamtwert (aufsteigend)
-	 * - allDesc  -> keine Preisfilterung, Sortierung nach Gesamtwert (absteigend)
-	 * - low/mid/high -> Preisfilterung, keine Sortierung
-	 */
 	let priceFilter = 'all';
-
 	let expiryFilter = 'all';
 	let groupByLocation = false;
 
-	// =========================================================
-	// ✅ "Bald ablaufend" Schwelle (persistiert)
-	// =========================================================
 	const STORAGE_KEY = 'soonThresholdDays';
 	let soonThresholdDays = 3;
 	$: soonThresholdDaysNum = Math.min(30, Math.max(1, Number(soonThresholdDays) || 3));
 
 	onMount(() => {
 		if (!browser) return;
-
 		const raw = localStorage.getItem(STORAGE_KEY);
 		const saved = Number(raw);
 
-		if (Number.isFinite(saved) && saved >= 1 && saved <= 30) {
-			soonThresholdDays = saved;
-		} else {
+		if (Number.isFinite(saved) && saved >= 1 && saved <= 30) soonThresholdDays = saved;
+		else {
 			soonThresholdDays = 3;
 			localStorage.setItem(STORAGE_KEY, '3');
 		}
@@ -48,30 +34,15 @@ import { MS_PER_DAY, utcToday, toUtcDay, getEarliestExpirationUtc } from '$lib/u
 		const v = Number(e.currentTarget.value);
 		const next = Number.isFinite(v) ? Math.min(30, Math.max(1, v)) : 3;
 		soonThresholdDays = next;
-
 		if (browser) localStorage.setItem(STORAGE_KEY, String(next));
 	}
 
-	// =========================================================
-	// Helper: Wert
-	// =========================================================
 	function productTotalValue(p) {
 		return (Number(p.totalQuantity) || 0) * (Number(p.pricePerUnit) || 0);
 	}
 
-	// =========================================================
-	// ✅ Datum robust → UTC-Day
-	// =========================================================
-
-	
-
-
-	// =========================================================
-	// Filter
-	// =========================================================
 	function matchesPrice(p) {
 		const value = productTotalValue(p);
-
 		if (priceFilter === 'all' || priceFilter === 'allAsc' || priceFilter === 'allDesc') return true;
 		if (priceFilter === 'low') return value < 5;
 		if (priceFilter === 'mid') return value >= 5 && value <= 20;
@@ -94,44 +65,29 @@ import { MS_PER_DAY, utcToday, toUtcDay, getEarliestExpirationUtc } from '$lib/u
 		return true;
 	}
 
-	// =========================================================
-	// 1) Filtern
-	// =========================================================
 	$: filteredProducts = (products ?? []).filter((product) => {
-		const matchesSearch =
-			!searchTerm || product.name.toLowerCase().includes(searchTerm.toLowerCase());
-
-		const matchesStorage =
-			storageFilter === 'all' || product.storageLocation === storageFilter;
-
+		const matchesSearch = !searchTerm || product.name.toLowerCase().includes(searchTerm.toLowerCase());
+		const matchesStorage = storageFilter === 'all' || product.storageLocation === storageFilter;
 		return matchesSearch && matchesStorage && matchesPrice(product) && matchesExpiry(product);
 	});
 
-	// =========================================================
-	// 2) Sortieren (nur allAsc/allDesc)
-	// =========================================================
 	$: displayedProducts = [...filteredProducts].sort((a, b) => {
 		if (priceFilter === 'allAsc') return productTotalValue(a) - productTotalValue(b);
 		if (priceFilter === 'allDesc') return productTotalValue(b) - productTotalValue(a);
 		return 0;
 	});
 
-	// =========================================================
-	// KPIs
-	// =========================================================
 	$: totalProducts = displayedProducts.length;
 
 	$: expiringSoon = (() => {
 		const todayUtc = utcToday();
 		let sum = 0;
-
 		for (const p of displayedProducts) {
 			for (const v of p.variants ?? []) {
 				const expUtc = toUtcDay(v.expirationDate);
 				if (expUtc === null) continue;
-
 				const diffDays = (expUtc - todayUtc) / MS_PER_DAY;
-				if (diffDays >= 0 && diffDays <= soonThresholdDaysNum) sum += 1; // zählt Varianten
+				if (diffDays >= 0 && diffDays <= soonThresholdDaysNum) sum += 1;
 			}
 		}
 		return sum;
@@ -139,24 +95,18 @@ import { MS_PER_DAY, utcToday, toUtcDay, getEarliestExpirationUtc } from '$lib/u
 
 	$: totalValue = displayedProducts.reduce((sum, p) => sum + productTotalValue(p), 0);
 
-	// =========================================================
-	// 3) Gruppieren
-	// =========================================================
-	const storageOrder = ['Kühlschrank', 'Vorratsschrank', 'Tiefkühler'];
+	// ✅ Lagerorte-Sortierung dynamisch aus DB
+	$: storageOrder = (locations ?? []).map((l) => l.name);
 
 	$: groupedProducts = (() => {
 		const map = new Map();
-
 		for (const p of displayedProducts) {
 			const loc = p.storageLocation || 'Sonstiger Ort';
 			if (!map.has(loc)) map.set(loc, []);
 			map.get(loc).push(p);
 		}
 
-		const entries = Array.from(map.entries()).map(([location, items]) => ({
-			location,
-			products: items
-		}));
+		const entries = Array.from(map.entries()).map(([location, items]) => ({ location, products: items }));
 
 		entries.sort((a, b) => {
 			const ia = storageOrder.indexOf(a.location);
@@ -168,25 +118,8 @@ import { MS_PER_DAY, utcToday, toUtcDay, getEarliestExpirationUtc } from '$lib/u
 
 		return entries;
 	})();
-
-
-	function onSelectTemplate(t) {
-	// bewusst gewählt → alles übernehmen
-	touched = {
-		icon: false,
-		unit: false,
-		amountPerUnit: false,
-		storageLocation: false,
-		pricePerUnit: false
-	};
-
-	// ✅ Name bei expliziter Auswahl übernehmen
-	name = t.name || name;
-
-	applyTemplate(t, { onlyIfUntouched: false });
-}
-
 </script>
+
 
 <section class="inventar-header">
 	<div class="title-block">
@@ -203,11 +136,12 @@ import { MS_PER_DAY, utcToday, toUtcDay, getEarliestExpirationUtc } from '$lib/u
 		/>
 
 		<select class="filter-select" bind:value={storageFilter} aria-label="Nach Aufbewahrungsort filtern">
-			<option value="all">Alle Orte</option>
-			<option value="Kühlschrank">Kühlschrank</option>
-			<option value="Vorratsschrank">Vorratsschrank</option>
-			<option value="Tiefkühler">Tiefkühler</option>
-		</select>
+	<option value="all">Alle Orte</option>
+	{#each locations as loc (loc.id)}
+		<option value={loc.name}>{loc.name}</option>
+	{/each}
+</select>
+
 
 		<select class="filter-select" bind:value={priceFilter} aria-label="Nach Preis filtern">
 			<option value="all">Alle Preise</option>

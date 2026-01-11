@@ -1,8 +1,9 @@
 <script>
 	import { getFoodEmoji } from '$lib/emoji-food-map.js';
 
-	export let data;
 	const { product } = data;
+let locations = data.locations ?? [];
+
 
 	let name = product.name;
 	let icon = product.icon;
@@ -110,15 +111,12 @@ $: if (unit === 'Stück') {
 
 			<div class="field">
 				<label for="storage">Aufbewahrungsort</label>
-				<select
-					id="storage"
-					name="storageLocation"
-					bind:value={storageLocation}
-				>
-					<option value="Kühlschrank">Kühlschrank</option>
-					<option value="Vorratsschrank">Vorratsschrank</option>
-					<option value="Tiefkühler">Tiefkühler</option>
-				</select>
+				<select id="storage" name="storageLocation" bind:value={storageLocation}>
+	{#each locations as loc (loc.id)}
+		<option value={loc.name}>{loc.name}</option>
+	{/each}
+</select>
+
 			</div>
 
 			<div class="field">

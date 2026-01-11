@@ -1,6 +1,11 @@
 import { getDb } from '$lib/server/db.js';
 import { fail, redirect } from '@sveltejs/kit';
 import { ObjectId } from 'mongodb';
+import { getStorageLocations } from '$lib/server/storageLocations.js';
+
+
+$: locations = data.locations ?? [];
+
 
 function roundToStep(value, step) {
 	return Math.round(value / step) * step;
@@ -24,7 +29,7 @@ function normalizePackUnit(unit) {
 
 export async function load() {
 	const db = await getDb();
-
+const locations = await getStorageLocations();
 	const templates = await db.collection('productTemplates').find({}).sort({ name: 1 }).toArray();
 
 	return {

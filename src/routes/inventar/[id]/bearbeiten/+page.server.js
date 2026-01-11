@@ -1,6 +1,8 @@
 import { getDb } from '$lib/server/db.js';
 import { ObjectId } from 'mongodb';
 import { error, redirect, fail } from '@sveltejs/kit';
+import { getStorageLocations } from '$lib/server/storageLocations.js';
+
 
 
 
@@ -35,44 +37,50 @@ function idQuery(id) {
 }
 
 export async function load({ params }) {
-	const db = await getDb();
+  const db = await getDb();
+  const locations = await getStorageLocations();
 
-	const doc = await db.collection('products').findOne(idQuery(params.id));
-	if (!doc) throw error(404, 'Produkt nicht gefunden');
+  const doc = await db.collection('products').findOne(idQuery(params.id));
+  if (!doc) throw error(404, 'Produkt nicht gefunden');
 
+  const packUnit = doc.packUnit ?? null;
+  const packSize = doc.packSize ?? null;
+  const displayUnit = doc.displayUnit ?? 'Stück';
+  const amountPerUnitDisplay = doc.amountPerUnitDisplay ?? (displayUnit === 'Stück' ? 1 : 0);
 
-	const variants = (doc.variants ?? []).map((v, index) => {
-		if (packUnit && packSize) {
-			const amt = Number(v.remainingAmount || 0);
-			const pieces = amt <= 0 ? 0 : Math.ceil(amt / packSize);
-			return {
-				id: index + 1,
-				quantity: pieces,
-				expirationDate: v.expirationDate ?? '',
-				status: v.status ?? 'ok'
-			};
-		}
-		return {
-			id: index + 1,
-			quantity: Number(v.piecesRemaining || 0),
-			expirationDate: v.expirationDate ?? '',
-			status: v.status ?? 'ok'
-		};
-	});
+  const variants = (doc.variants ?? []).map((v, index) => {
+    if (packUnit && packSize) {
+      const amt = Number(v.remainingAmount || 0);
+      const pieces = amt <= 0 ? 0 : Math.ceil(amt / packSize);
+      return {
+        id: index + 1,
+        quantity: pieces,
+        expirationDate: v.expirationDate ?? '',
+        status: v.status ?? 'ok'
+      };
+    }
+    return {
+      id: index + 1,
+      quantity: Number(v.piecesRemaining || 0),
+      expirationDate: v.expirationDate ?? '',
+      status: v.status ?? 'ok'
+    };
+  });
 
-	return {
-		product: {
-			id: doc._id.toString(),
-			name: doc.name,
-			icon: doc.icon ?? '🥕',
-unit: displayUnit,			
-storageLocation: doc.storageLocation ?? 'Kühlschrank',
-			pricePerUnit: doc.pricePerUnit ?? 0,
-amountPerUnit: amountPerUnitDisplay,
-			variants
-		}
-	};
+  return {
+    product: {
+      id: doc._id.toString(),
+      name: doc.name,
+      icon: doc.icon ?? '🥕',
+      unit: displayUnit,
+      storageLocation: doc.storageLocation ?? 'Kühlschrank',
+      pricePerUnit: doc.pricePerUnit ?? 0,
+      amountPerUnit: amountPerUnitDisplay,
+      variants
+    }
+  };
 }
+
 
 export const actions = {
 	default: async ({ request, params }) => {
