@@ -1,11 +1,6 @@
 import { getDb } from '$lib/server/db.js';
 import { ObjectId } from 'mongodb';
 import { error, redirect, fail } from '@sveltejs/kit';
-import { getStorageLocations } from '$lib/server/storageLocations.js';
-
-
-
-
 
 function roundToStep(value, step) {
 	return Math.round(value / step) * step;
@@ -36,74 +31,82 @@ function idQuery(id) {
 	}
 }
 
-export async function load({ params }) {
-  const db = await getDb();
-  const locations = await getStorageLocations();
-
-  const doc = await db.collection('products').findOne(idQuery(params.id));
-  if (!doc) throw error(404, 'Produkt nicht gefunden');
-
-  const packUnit = doc.packUnit ?? null;
-  const packSize = doc.packSize ?? null;
-  const displayUnit = doc.displayUnit ?? 'Stück';
-  const amountPerUnitDisplay = doc.amountPerUnitDisplay ?? (displayUnit === 'Stück' ? 1 : 0);
-
-  const variants = (doc.variants ?? []).map((v, index) => {
-    if (packUnit && packSize) {
-      const amt = Number(v.remainingAmount || 0);
-      const pieces = amt <= 0 ? 0 : Math.ceil(amt / packSize);
-      return {
-        id: index + 1,
-        quantity: pieces,
-        expirationDate: v.expirationDate ?? '',
-        status: v.status ?? 'ok'
-      };
-    }
-    return {
-      id: index + 1,
-      quantity: Number(v.piecesRemaining || 0),
-      expirationDate: v.expirationDate ?? '',
-      status: v.status ?? 'ok'
-    };
-  });
-
-  return {
-    product: {
-      id: doc._id.toString(),
-      name: doc.name,
-      icon: doc.icon ?? '🥕',
-      unit: displayUnit,
-      storageLocation: doc.storageLocation ?? 'Kühlschrank',
-      pricePerUnit: doc.pricePerUnit ?? 0,
-      amountPerUnit: amountPerUnitDisplay,
-      variants
-    }
-  };
+// ✅ Date/ISO/string -> "YYYY-MM-DD" (für <input type="date">)
+function toDateInputValue(v) {
+	if (!v) return '';
+	if (v instanceof Date) return v.toISOString().slice(0, 10);
+	const s = String(v);
+	return s.includes('T') ? s.split('T')[0] : s;
 }
 
+export async function load({ params }) {
+	const db = await getDb();
+
+	const doc = await db.collection('products').findOne(idQuery(params.id));
+	if (!doc) throw error(404, 'Produkt nicht gefunden');
+
+	// ✅ HIER fehlte es bei dir:
+	const packUnit = doc.packUnit ?? null;
+	const packSize = doc.packSize ?? null;
+	const displayUnit = doc.displayUnit ?? 'Stück';
+	const amountPerUnitDisplay = doc.amountPerUnitDisplay ?? 1;
+
+	const isPack = Boolean(packUnit && packSize);
+
+	const variants = (doc.variants ?? []).map((v, index) => {
+		if (isPack) {
+			const amt = Number(v.remainingAmount || 0);
+			const pieces = amt <= 0 ? 0 : Math.ceil(amt / Number(packSize));
+			return {
+				id: index + 1,
+				quantity: pieces,
+				expirationDate: toDateInputValue(v.expirationDate),
+				status: v.status ?? 'ok'
+			};
+		}
+
+		return {
+			id: index + 1,
+			quantity: Number(v.piecesRemaining || 0),
+			expirationDate: toDateInputValue(v.expirationDate),
+			status: v.status ?? 'ok'
+		};
+	});
+
+	return {
+		product: {
+			id: doc._id.toString(),
+			name: doc.name,
+			icon: doc.icon ?? '🥕',
+			unit: displayUnit,
+			storageLocation: doc.storageLocation ?? 'Kühlschrank',
+			pricePerUnit: doc.pricePerUnit ?? 0,
+			amountPerUnit: amountPerUnitDisplay,
+			variants
+		}
+	};
+}
 
 export const actions = {
 	default: async ({ request, params }) => {
 		const formData = await request.formData();
 
-		const name = formData.get('name');
-		const icon = formData.get('icon') || '🥕';
-		const displayUnit = formData.get('unit') || 'Stück';
-		const storageLocation = formData.get('storageLocation');
+		const name = String(formData.get('name') || '').trim();
+		const icon = String(formData.get('icon') || '🥕').trim() || '🥕';
+		const displayUnit = String(formData.get('unit') || 'Stück');
+		const storageLocation = String(formData.get('storageLocation') || '');
 
-		const rawPrice = parseFloat(formData.get('pricePerUnit') || '0');
-		const pricePerUnit = roundToStep(rawPrice, 0.05);
+		const rawPrice = parseFloat(String(formData.get('pricePerUnit') || '0'));
+		const pricePerUnit = roundToStep(Number.isFinite(rawPrice) ? rawPrice : 0, 0.05);
 
-let amountPerUnitDisplay = parseFloat(formData.get('amountPerUnit') || '0');
+		let amountPerUnitDisplay = parseFloat(String(formData.get('amountPerUnit') || '0'));
+		if (!Number.isFinite(amountPerUnitDisplay)) amountPerUnitDisplay = 0;
 
 		if (!name || !displayUnit || !storageLocation) {
 			return fail(400, { message: 'Pflichtfelder fehlen.' });
 		}
 
 		const db = await getDb();
-
-
-
 
 		// altes Produkt holen (robust)
 		const oldDoc = await db.collection('products').findOne(idQuery(params.id));
@@ -114,12 +117,10 @@ let amountPerUnitDisplay = parseFloat(formData.get('amountPerUnit') || '0');
 
 		const { packUnit, factorToBase } = normalizePackUnit(displayUnit);
 
-if (!packUnit) {
-	amountPerUnitDisplay = 1;
-}
+		// ✅ Regel: Stück => immer 1
+		if (!packUnit) amountPerUnitDisplay = 1;
 
-const packSize = packUnit ? amountPerUnitDisplay * factorToBase : null;
-
+		const packSize = packUnit ? amountPerUnitDisplay * factorToBase : null;
 
 		const quantities = formData.getAll('variant_quantity');
 		const expirations = formData.getAll('variant_expirationDate');
@@ -130,18 +131,19 @@ const packSize = packUnit ? amountPerUnitDisplay * factorToBase : null;
 
 		const variants = quantities.map((q, i) => {
 			const pieces = Number(q) || 0;
+			const exp = String(expirations[i] || '');
 
 			if (packUnit) {
 				return {
-					remainingAmount: pieces * (packSize || 0),
-					expirationDate: expirations[i],
+					remainingAmount: pieces * (Number(packSize) || 0),
+					expirationDate: exp,
 					status: 'ok'
 				};
 			}
 
 			return {
 				piecesRemaining: pieces,
-				expirationDate: expirations[i],
+				expirationDate: exp,
 				status: 'ok'
 			};
 		});
@@ -149,12 +151,13 @@ const packSize = packUnit ? amountPerUnitDisplay * factorToBase : null;
 		const totalQuantity = packUnit
 			? variants.reduce((sum, v) => {
 					const amt = Number(v.remainingAmount || 0);
-					if (!packSize || amt <= 0) return sum;
-					return sum + Math.ceil(amt / packSize);
+					const ps = Number(packSize) || 0;
+					if (!ps || amt <= 0) return sum;
+					return sum + Math.ceil(amt / ps);
 			  }, 0)
 			: variants.reduce((sum, v) => sum + Number(v.piecesRemaining || 0), 0);
 
-		const normalizedName = name.trim().toLowerCase();
+		const normalizedName = name.toLowerCase();
 
 		// ✅ Delta => purchased
 		const oldTotal = Number(oldDoc.totalQuantity || 0);
@@ -170,6 +173,7 @@ const packSize = packUnit ? amountPerUnitDisplay * factorToBase : null;
 				unit: 'Stück',
 				quantity: delta,
 				value: delta * pricePerUnit,
+				piecesEquivalent: delta,
 				createdAt: new Date()
 			});
 		}

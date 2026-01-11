@@ -1,19 +1,22 @@
 <script>
 	import { getFoodEmoji } from '$lib/emoji-food-map.js';
+	import '$lib/styles/forms.css';
 
 	export let data;
 
 	// Templates + Lagerorte aus server load
 	let templates = data.templates ?? [];
 	let locations = data.locations ?? [];
+
 	let selectedTemplateId = '';
+	let createTemplate = true;
 
 	// Formular-State
 	let name = '';
 	let icon = '🥕';
 	let unit = 'Stück';
 	let amountPerUnit = 1;
-	let storageLocation = 'Kühlschrank';
+	let storageLocation = locations[0]?.name ?? 'Kühlschrank';
 	let pricePerUnit = 0;
 
 	let iconTouched = false;
@@ -25,7 +28,7 @@
 	// Stück => Menge immer 1
 	$: if (unit === 'Stück') amountPerUnit = 1;
 
-	// ✅ Auto-Emoji nur wenn User nicht manuell editiert hat
+	// Auto-Emoji nur wenn User nicht manuell editiert hat
 	$: if (!iconTouched) {
 		icon = getFoodEmoji(name, icon || '🍽️');
 	}
@@ -72,13 +75,10 @@
 	}
 </script>
 
-
 <section class="page-header">
 	<div>
 		<h1>Produkt hinzufügen</h1>
-		<p class="subtitle">
-			Erstelle ein neues Produkt oder nutze eine Vorlage.
-		</p>
+		<p class="subtitle">Neues Produkt anlegen</p>
 	</div>
 	<a href="/inventar" class="secondary-button">Zurück</a>
 </section>
@@ -94,15 +94,13 @@
 			<label for="template">Vorlage wählen</label>
 			<select
 				id="template"
-				bind:value={selectedTemplateId}
+				name="templateId"
+				value={selectedTemplateId}
 				on:change={(e) => applyTemplateById(e.currentTarget.value)}
 			>
 				<option value="">– Keine Vorlage –</option>
 				{#each templates as tpl (tpl.id)}
-					<option value={tpl.id}>
-						{tpl.icon}
-						{tpl.name}
-					</option>
+					<option value={tpl.id}>{tpl.icon} {tpl.name}</option>
 				{/each}
 			</select>
 		</div>
@@ -153,15 +151,12 @@
 					bind:value={amountPerUnit}
 					required
 				/>
+				<p class="field-hint">z.B. 250 ml, 500 g, 1 Stück</p>
 			</div>
 
 			<div class="field">
 				<label for="storageLocation">Aufbewahrungsort</label>
-				<select
-					id="storageLocation"
-					name="storageLocation"
-					bind:value={storageLocation}
-				>
+				<select id="storageLocation" name="storageLocation" bind:value={storageLocation}>
 					{#each locations as loc (loc.id)}
 						<option value={loc.name}>{loc.name}</option>
 					{/each}
@@ -195,7 +190,9 @@
 
 		{#each variants as v (v.id)}
 			<div class="variant-row">
+				<label class="sr-only" for={`variant-qty-${v.id}`}>Menge</label>
 				<input
+					id={`variant-qty-${v.id}`}
 					type="number"
 					min="1"
 					step="1"
@@ -203,7 +200,9 @@
 					bind:value={v.quantity}
 				/>
 
+				<label class="sr-only" for={`variant-exp-${v.id}`}>Ablaufdatum</label>
 				<input
+					id={`variant-exp-${v.id}`}
 					type="date"
 					name="variant_expirationDate"
 					bind:value={v.expirationDate}
@@ -215,11 +214,28 @@
 					class="icon-button"
 					on:click={() => removeVariant(v.id)}
 					title="Entfernen"
+					aria-label="Zeile entfernen"
 				>
 					✕
 				</button>
 			</div>
 		{/each}
+
+		<!-- Template Toggle -->
+		<label class="toggle" for="createTemplate">
+			<input
+				id="createTemplate"
+				type="checkbox"
+				name="createTemplate"
+				value="1"
+				bind:checked={createTemplate}
+			/>
+			<span>Als Vorlage speichern</span>
+		</label>
+
+		<p class="field-hint">
+			Wenn deaktiviert, wird beim Speichern keine neue Vorlage erstellt/aktualisiert.
+		</p>
 	</section>
 
 	<!-- ========================= -->
@@ -234,102 +250,16 @@
 </form>
 
 <style>
-	.page-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		margin-bottom: 1.5rem;
-	}
-
-	.subtitle {
-		color: #6b7280;
-		font-size: 0.9rem;
-	}
-
-	.form {
-		display: flex;
-		flex-direction: column;
-		gap: 1.5rem;
-		max-width: 900px;
-	}
-
-	.card {
-		background: white;
-		border-radius: 1rem;
-		padding: 1.25rem 1.5rem;
-		border: 1px solid #e5e7eb;
-	}
-
-	.grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-		gap: 1rem;
-	}
-
-	.field {
-		display: flex;
-		flex-direction: column;
-		gap: 0.25rem;
-	}
-
-	label {
-		font-size: 0.85rem;
-		color: #4b5563;
-	}
-
-	input,
-	select {
-		border-radius: 0.6rem;
-		border: 1px solid #d1d5db;
-		padding: 0.45rem 0.6rem;
-		font-size: 0.9rem;
-	}
-
-	.card-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		margin-bottom: 0.75rem;
-	}
-
-	.variant-row {
-		display: grid;
-		grid-template-columns: 1fr 2fr auto;
-		gap: 0.5rem;
-		margin-bottom: 0.5rem;
-	}
-
-	.icon-button {
-		border: none;
-		background: #fee2e2;
-		color: #b91c1c;
-		border-radius: 999px;
-		width: 1.8rem;
-		height: 1.8rem;
-		cursor: pointer;
-	}
-
-	.form-actions {
-		display: flex;
-		justify-content: flex-end;
-		gap: 0.75rem;
-	}
-
-	.primary-button {
-		background: #0f766e;
-		color: white;
-		border-radius: 999px;
-		padding: 0.5rem 1.2rem;
-		border: none;
-	}
-
-	.secondary-button,
-	.small-button {
-		background: #e5e7eb;
-		color: #111827;
-		border-radius: 999px;
-		padding: 0.5rem 1rem;
-		text-decoration: none;
-		border: none;
+	/* Screenreader labels für Variant Inputs (a11y clean) */
+	.sr-only {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		padding: 0;
+		margin: -1px;
+		overflow: hidden;
+		clip: rect(0, 0, 0, 0);
+		white-space: nowrap;
+		border: 0;
 	}
 </style>

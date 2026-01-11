@@ -1,7 +1,9 @@
 // src/lib/emoji-food-map.js
 
-// Basis-Mapping: "Kernwort" → Emoji
-// Alle Keys sind kleingeschrieben!
+/**
+ * Basis-Mapping: "Kernwort" → Emoji
+ * Keys sind kleingeschrieben.
+ */
 export const FOOD_EMOJIS = {
 	// Obst
 	apfel: '🍎',
@@ -11,7 +13,7 @@ export const FOOD_EMOJIS = {
 	trauben: '🍇',
 	melone: '🍉',
 	wassermelone: '🍉',
-	'pfirsich': '🍑',
+	pfirsich: '🍑',
 	erdbeere: '🍓',
 	zitrone: '🍋',
 	lime: '🍋',
@@ -65,7 +67,7 @@ export const FOOD_EMOJIS = {
 	sandwich: '🥪',
 	burger: '🍔',
 	pommes: '🍟',
-	'kartoffelchips': '🍟',
+	kartoffelchips: '🍟',
 	'kartoffel-wedges': '🍟',
 	cerealien: '🥣',
 	haferflocken: '🥣',
@@ -79,7 +81,7 @@ export const FOOD_EMOJIS = {
 	käse: '🧀',
 	mozarella: '🧀',
 	parmesan: '🧀',
-	'frischkäse': '🧀',
+	frischkäse: '🧀',
 	butter: '🧈',
 
 	// Eier, Fleisch, Fisch
@@ -106,14 +108,14 @@ export const FOOD_EMOJIS = {
 	curry: '🍛',
 	ramen: '🍜',
 	'nudel-suppe': '🍜',
-	'döner': '🥙',
+	döner: '🥙',
 	kebab: '🥙',
 	falafel: '🧆',
 	'hot dog': '🌭',
 
 	// Snacks & Süßes
 	schokolade: '🍫',
-	'keks': '🍪',
+	keks: '🍪',
 	kekse: '🍪',
 	donut: '🍩',
 	kuchen: '🍰',
@@ -122,7 +124,7 @@ export const FOOD_EMOJIS = {
 	eis: '🍨',
 	eiskugel: '🍨',
 	'soft-eis': '🍦',
-	'gummibärchen': '🍬',
+	gummibärchen: '🍬',
 	bonbon: '🍬',
 
 	// Getränke
@@ -144,15 +146,16 @@ export const FOOD_EMOJIS = {
 	gewürz: '🧂',
 	salz: '🧂',
 	pfeffer: '🧂',
-	'sojasauce': '🧂',
+	sojasauce: '🧂',
 	'soja-sauce': '🧂',
 	honig: '🍯',
 	'nuss-nougat-creme': '🍫',
-	'aufstrich': '🍯'
+	aufstrich: '🍯'
 };
 
-// Zusätzliche Synonyme / Mehrwort-Kombis → auf Basis-Keys mappen
-// (damit "rote äpfel" trotzdem den Eintrag "apfel" nutzt)
+/**
+ * Zusätzliche Synonyme / Mehrwort-Kombis → auf Basis-Keys mappen.
+ */
 export const FOOD_SYNONYMS = {
 	'rote äpfel': 'apfel',
 	'rote apfel': 'apfel',
@@ -160,63 +163,110 @@ export const FOOD_SYNONYMS = {
 	'grüne äpfel': 'grüner apfel',
 	'green apple': 'grüner apfel',
 
-	'kartoffelbrei': 'kartoffel',
-	'stampfkartoffeln': 'kartoffel',
+	kartoffelbrei: 'kartoffel',
+	stampfkartoffeln: 'kartoffel',
 	'ofen-kartoffeln': 'kartoffel',
 
 	'blattsalat mix': 'salat',
-	'salatmix': 'salat',
-	'römersalat': 'salat',
+	salatmix: 'salat',
+	römersalat: 'salat',
 
-	'vollkornbrot': 'brot',
-	'toastbrot': 'brot',
-	'toast': 'brot',
+	vollkornbrot: 'brot',
+	toastbrot: 'brot',
+	toast: 'brot',
 
-	'magerquark': 'quark',
+	magerquark: 'quark',
 	'griechischer joghurt': 'joghurt',
 
-	'hühnerbrust': 'hähnchen',
-	'hähnchenbrust': 'hähnchen',
-	'putenbrust': 'pute',
+	hühnerbrust: 'hähnchen',
+	hähnchenbrust: 'hähnchen',
+	putenbrust: 'pute',
 
-	'vanilleeis': 'eis',
-	'schokoladeneis': 'eis',
-	'erdbeereis': 'eis',
+	vanilleeis: 'eis',
+	schokoladeneis: 'eis',
+	erdbeereis: 'eis',
 
-	'mineralwasser': 'wasser',
+	mineralwasser: 'wasser',
 	'stilles wasser': 'wasser',
-	'sprudelwasser': 'wasser',
+	sprudelwasser: 'wasser',
 
 	'orangen-saft': 'orangensaft',
-	'apfel-saft': 'apfelsaft'
+	'apfel-saft': 'apfelsaft',
+
+	// ✅ extra robuste Schreibweisen
+	haehnchen: 'hähnchen',
+	haehnchenbrust: 'hähnchen',
+	kaese: 'käse',
+	frischkaese: 'frischkäse'
 };
 
 /**
+ * ✅ Für Emoji-Picker: eindeutige Emojis aus dem Mapping (sortiert)
+ */
+export const FOOD_EMOJI_LIST = Array.from(new Set(Object.values(FOOD_EMOJIS))).sort();
+
+/**
+ * Normalisierung:
+ * - lowercase
+ * - trim
+ * - Umlaute/ß vereinheitlichen, damit "Hähnchen" == "Haehnchen"
+ * - doppelte Spaces raus
+ */
+function normalize(s) {
+	return String(s || '')
+		.trim()
+		.toLowerCase()
+		.replaceAll('ä', 'ae')
+		.replaceAll('ö', 'oe')
+		.replaceAll('ü', 'ue')
+		.replaceAll('ß', 'ss')
+		.replace(/\s+/g, ' ');
+}
+
+/**
  * Versucht, für einen Produktnamen ein passendes Emoji zu finden.
- * - nutzt FOOD_SYNONYMS (genaue Matches)
- * - durchsucht FOOD_EMOJIS per "enthält"-Suche
- * - fallback, wenn nichts gefunden wurde
+ * Reihenfolge:
+ * 1) Synonym exakt (normalisiert)
+ * 2) Exakter Treffer im Basis-Mapping (normalisiert)
+ * 3) Fuzzy: "enthält" Basis-Key
+ * 4) Fuzzy: "enthält" Synonym-Key → mapped auf Basis-Key
+ * 5) fallback
  */
 export function getFoodEmoji(name, fallback = '🍽️') {
 	if (!name) return fallback;
 
-	const text = name.toLowerCase().trim();
+	const text = normalize(name);
 
-	// 1) direkte Synonyme
-	if (FOOD_SYNONYMS[text]) {
-		const baseKey = FOOD_SYNONYMS[text];
-		if (FOOD_EMOJIS[baseKey]) return FOOD_EMOJIS[baseKey];
+	// 1) Synonym exakt
+	const synBase = FOOD_SYNONYMS[text];
+	if (synBase) {
+		const baseKey = normalize(synBase);
+		// baseKey muss zu einem FOOD_EMOJIS Key gemappt werden -> wir suchen den echten Key
+		for (const k of Object.keys(FOOD_EMOJIS)) {
+			if (normalize(k) === baseKey) return FOOD_EMOJIS[k];
+		}
 	}
 
-	// 2) exakter Treffer
-	if (FOOD_EMOJIS[text]) {
-		return FOOD_EMOJIS[text];
+	// 2) Exakt im Basis-Mapping
+	for (const k of Object.keys(FOOD_EMOJIS)) {
+		if (normalize(k) === text) return FOOD_EMOJIS[k];
 	}
 
-	// 3) fuzzy: wenn das Basiswort im Namen vorkommt
-	for (const key of Object.keys(FOOD_EMOJIS)) {
-		if (text.includes(key)) {
-			return FOOD_EMOJIS[key];
+	// 3) Fuzzy Basis-Mapping
+	for (const k of Object.keys(FOOD_EMOJIS)) {
+		const nk = normalize(k);
+		if (nk && text.includes(nk)) return FOOD_EMOJIS[k];
+	}
+
+	// 4) Fuzzy Synonyme
+	for (const syn of Object.keys(FOOD_SYNONYMS)) {
+		const ns = normalize(syn);
+		if (ns && text.includes(ns)) {
+			const mapped = FOOD_SYNONYMS[syn];
+			const mappedN = normalize(mapped);
+			for (const k of Object.keys(FOOD_EMOJIS)) {
+				if (normalize(k) === mappedN) return FOOD_EMOJIS[k];
+			}
 		}
 	}
 

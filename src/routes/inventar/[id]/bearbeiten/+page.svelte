@@ -1,16 +1,19 @@
 <script>
 	import { getFoodEmoji } from '$lib/emoji-food-map.js';
+	import '$lib/styles/forms.css';
 
-	const { product } = data;
-let locations = data.locations ?? [];
-
+	export let data;
+	const { product, locations = [] } = data;
 
 	let name = product.name;
-	let icon = product.icon;
-	let unit = product.unit;
-	let storageLocation = product.storageLocation;
-	let pricePerUnit = product.pricePerUnit;
-	let amountPerUnit = product.amountPerUnit;
+	let icon = product.icon ?? '🥕';
+	let unit = product.unit ?? 'Stück';
+	let amountPerUnit = product.amountPerUnit ?? 1;
+
+	// Falls du locations schon im load mitgibst: Dropdown, sonst Textfeld fallback
+	let storageLocation = product.storageLocation ?? (locations[0]?.name ?? 'Kühlschrank');
+
+	let pricePerUnit = product.pricePerUnit ?? 0;
 
 	let variants =
 		product.variants && product.variants.length
@@ -19,32 +22,31 @@ let locations = data.locations ?? [];
 
 	let nextId = variants.length + 1;
 
-	// Einheit-Logik: Stück => immer 1
-$: if (unit === 'Stück') {
-	amountPerUnit = 1;
-}
+	let iconTouched = false;
 
-
-	function addVariantRow() {
-		variants = [
-			...variants,
-			{ id: nextId++, quantity: 1, expirationDate: '' }
-		];
+	// Stück => Menge immer 1
+	$: if (unit === 'Stück') {
+		amountPerUnit = 1;
 	}
 
-	function removeVariantRow(id) {
+	// Auto-Emoji nur wenn User nicht manuell editiert
+	$: if (!iconTouched) {
+		icon = getFoodEmoji(name, icon || '🍽️');
+	}
+
+	function onIconInput(e) {
+		iconTouched = true;
+		icon = e.currentTarget.value;
+	}
+
+	function addVariant() {
+		variants = [...variants, { id: nextId++, quantity: 1, expirationDate: '' }];
+	}
+
+	function removeVariant(id) {
 		if (variants.length === 1) return;
 		variants = variants.filter((v) => v.id !== id);
 	}
-
-	function updateVariant(id, field, value) {
-		variants = variants.map((v) =>
-			v.id === id ? { ...v, [field]: value } : v
-		);
-	}
-
-	// Emoji automatisch vorschlagen / aktualisieren
-	$: icon = getFoodEmoji(name, icon || '🍽️');
 </script>
 
 <section class="page-header">
@@ -58,27 +60,16 @@ $: if (unit === 'Stück') {
 <form class="form" method="POST">
 	<section class="card">
 		<h2>Basisinformationen</h2>
+
 		<div class="grid">
 			<div class="field">
 				<label for="name">Produktname</label>
-				<input
-					id="name"
-					name="name"
-					type="text"
-					bind:value={name}
-					required
-				/>
+				<input id="name" name="name" type="text" bind:value={name} required />
 			</div>
 
 			<div class="field">
 				<label for="icon">Icon (Emoji)</label>
-				<input
-					id="icon"
-					name="icon"
-					type="text"
-					maxlength="2"
-					bind:value={icon}
-				/>
+				<input id="icon" name="icon" type="text" maxlength="2" value={icon} on:input={onIconInput} />
 			</div>
 
 			<div class="field">
@@ -93,317 +84,112 @@ $: if (unit === 'Stück') {
 			</div>
 
 			<div class="field">
-				<label for="amount">Menge pro Einheit</label>
-				<div class="with-unit">
-					<input
-						id="amount"
-						name="amountPerUnit"
-						type="number"
-						min="0"
-						step="0.01"
-						bind:value={amountPerUnit}
-						required
-					/>
-					<span class="unit-label">{unit}</span>
-				</div>
+				<label for="amountPerUnit">Menge pro Einheit</label>
+				<input
+					id="amountPerUnit"
+					name="amountPerUnit"
+					type="number"
+					min="0.01"
+					step="0.01"
+					bind:value={amountPerUnit}
+					required
+				/>
 				<p class="field-hint">z.B. 250 ml, 500 g, 1 Stück</p>
 			</div>
 
 			<div class="field">
-				<label for="storage">Aufbewahrungsort</label>
-				<select id="storage" name="storageLocation" bind:value={storageLocation}>
-	{#each locations as loc (loc.id)}
-		<option value={loc.name}>{loc.name}</option>
-	{/each}
-</select>
+				<label for="storageLocation">Aufbewahrungsort</label>
 
+				{#if locations.length > 0}
+					<select id="storageLocation" name="storageLocation" bind:value={storageLocation}>
+						{#each locations as loc (loc.id)}
+							<option value={loc.name}>{loc.name}</option>
+						{/each}
+					</select>
+				{:else}
+					<input
+						id="storageLocation"
+						name="storageLocation"
+						type="text"
+						bind:value={storageLocation}
+						required
+					/>
+				{/if}
 			</div>
 
 			<div class="field">
-				<label for="price">Preis pro Einheit (CHF)</label>
+				<label for="pricePerUnit">Preis pro Einheit (CHF)</label>
 				<input
-					id="price"
+					id="pricePerUnit"
 					name="pricePerUnit"
 					type="number"
 					step="0.05"
 					min="0"
 					bind:value={pricePerUnit}
-					placeholder="z.B. 0.80"
 				/>
 			</div>
 		</div>
 	</section>
 
-	<!-- VARIANTEN-BEREICH -->
 	<section class="card">
 		<div class="card-header">
 			<h2>Mengen & Ablaufdaten</h2>
-			<button type="button" class="small-button" on:click={addVariantRow}>
+			<button type="button" class="small-button" on:click={addVariant}>
 				+ Zeile hinzufügen
 			</button>
 		</div>
 
-		<p class="hint">
-			Falls du dasselbe Produkt mit verschiedenen Ablaufdaten hast,
-			kannst du mehrere Zeilen anlegen.
-		</p>
-
-		<div class="variant-header-row">
-			<span>Menge</span>
-			<span>Ablaufdatum</span>
-			<span></span>
-		</div>
-
-		{#each variants as variant (variant.id)}
+		{#each variants as v (v.id)}
 			<div class="variant-row">
-				<div>
-					<input
-						type="number"
-						min="1"
-						step="1"
-						name="variant_quantity"
-						bind:value={variant.quantity}
-						on:input={(e) =>
-							updateVariant(
-								variant.id,
-								'quantity',
-								Number(e.target.value) || 0
-							)}
-					/>
-				</div>
+				<label class="sr-only" for={`variant-qty-${v.id}`}>Menge</label>
+				<input
+					id={`variant-qty-${v.id}`}
+					type="number"
+					min="1"
+					step="1"
+					name="variant_quantity"
+					bind:value={v.quantity}
+				/>
 
-				<div>
-					<input
-						type="date"
-						name="variant_expirationDate"
-						bind:value={variant.expirationDate}
-						on:input={(e) =>
-							updateVariant(
-								variant.id,
-								'expirationDate',
-								e.target.value
-							)}
-						required
-					/>
-				</div>
+				<label class="sr-only" for={`variant-exp-${v.id}`}>Ablaufdatum</label>
+				<input
+					id={`variant-exp-${v.id}`}
+					type="date"
+					name="variant_expirationDate"
+					bind:value={v.expirationDate}
+					required
+				/>
 
-				<div class="variant-actions">
-					<button
-						type="button"
-						class="icon-button"
-						on:click={() => removeVariantRow(variant.id)}
-						title="Zeile entfernen"
-					>
-						✕
-					</button>
-				</div>
+				<button
+					type="button"
+					class="icon-button"
+					on:click={() => removeVariant(v.id)}
+					title="Zeile entfernen"
+					aria-label="Zeile entfernen"
+				>
+					✕
+				</button>
 			</div>
 		{/each}
 	</section>
 
 	<section class="form-actions">
 		<a href="/inventar" class="secondary-button">Abbrechen</a>
-		<button type="submit" class="primary-button">
-			Änderungen speichern
-		</button>
+		<button type="submit" class="primary-button">Änderungen speichern</button>
 	</section>
 </form>
 
 <style>
-	.page-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		gap: 1rem;
-		margin-bottom: 1.5rem;
-	}
-
-	h1 {
-		margin: 0 0 0.25rem 0;
-		font-size: 1.6rem;
-	}
-
-	.subtitle {
-		margin: 0;
-		color: #6b7280;
-		font-size: 0.9rem;
-	}
-
-	.form {
-		display: flex;
-		flex-direction: column;
-		gap: 1.5rem;
-		max-width: 900px;
-	}
-
-	.card {
-		background: white;
-		border-radius: 1rem;
-		padding: 1.25rem 1.5rem;
-		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-		border: 1px solid #e5e7eb;
-	}
-
-	.card h2 {
-		margin-top: 0;
-		margin-bottom: 1rem;
-		font-size: 1.1rem;
-	}
-
-	.grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-		gap: 1rem 1.25rem;
-	}
-
-	.field {
-		display: flex;
-		flex-direction: column;
-		gap: 0.25rem;
-	}
-
-	label {
-		font-size: 0.85rem;
-		color: #4b5563;
-	}
-
-	input,
-	select {
-		border-radius: 0.6rem;
-		border: 1px solid #d1d5db;
-		padding: 0.45rem 0.6rem;
-		font-size: 0.9rem;
-	}
-
-	input:focus,
-	select:focus {
-		outline: none;
-		border-color: #0f766e;
-		box-shadow: 0 0 0 1px rgba(15, 118, 110, 0.2);
-	}
-
-	.card-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		gap: 1rem;
-		margin-bottom: 0.75rem;
-	}
-
-	.hint {
-		margin: 0 0 0.75rem 0;
-		font-size: 0.8rem;
-		color: #6b7280;
-	}
-
-	.variant-header-row {
-		display: grid;
-		grid-template-columns: 1fr 2fr auto;
-		font-size: 0.8rem;
-		color: #6b7280;
-		margin-bottom: 0.25rem;
-	}
-
-	.variant-row {
-		display: grid;
-		grid-template-columns: 1fr 2fr auto;
-		gap: 0.5rem;
-		align-items: center;
-		margin-bottom: 0.4rem;
-	}
-
-	.variant-actions {
-		display: flex;
-		justify-content: flex-end;
-	}
-
-	.icon-button {
-		border: none;
-		background: #fee2e2;
-		color: #b91c1c;
-		border-radius: 999px;
-		width: 1.8rem;
-		height: 1.8rem;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		cursor: pointer;
-		font-size: 0.9rem;
-	}
-
-	.with-unit {
-		display: flex;
-		align-items: center;
-		gap: 0.4rem;
-	}
-
-	.unit-label {
-		font-size: 0.85rem;
-		color: #4b5563;
-		padding: 0.3rem 0.6rem;
-		border-radius: 0.6rem;
-		background: #f3f4f6;
-		border: 1px solid #e5e7eb;
-	}
-
-	.field-hint {
-		margin: 0.15rem 0 0;
-		font-size: 0.75rem;
-		color: #9ca3af;
-	}
-
-	.form-actions {
-		display: flex;
-		justify-content: flex-end;
-		gap: 0.75rem;
-	}
-
-	.primary-button,
-	.secondary-button,
-	.small-button {
-		border-radius: 999px;
-		border: none;
-		padding: 0.5rem 1rem;
-		font-size: 0.9rem;
-		cursor: pointer;
-		text-decoration: none;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		gap: 0.25rem;
-	}
-
-	.primary-button {
-		background: #0f766e;
-		color: white;
-	}
-
-	.secondary-button {
-		background: #e5e7eb;
-		color: #111827;
-	}
-
-	.small-button {
-		background: #e5e7eb;
-		color: #111827;
-		font-size: 0.8rem;
-		padding: 0.35rem 0.8rem;
-	}
-
-	@media (max-width: 640px) {
-		.page-header {
-			flex-direction: column;
-			align-items: flex-start;
-		}
-
-		.form-actions {
-			flex-direction: column-reverse;
-			align-items: stretch;
-		}
-
-		.primary-button,
-		.secondary-button {
-			width: 100%;
-		}
+	/* nur für screenreader-labels in den Varianten */
+	.sr-only {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		padding: 0;
+		margin: -1px;
+		overflow: hidden;
+		clip: rect(0, 0, 0, 0);
+		white-space: nowrap;
+		border: 0;
 	}
 </style>
