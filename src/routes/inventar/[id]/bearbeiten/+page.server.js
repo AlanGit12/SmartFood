@@ -2,6 +2,9 @@ import { getDb } from '$lib/server/db.js';
 import { ObjectId } from 'mongodb';
 import { error, redirect, fail } from '@sveltejs/kit';
 
+
+
+
 function roundToStep(value, step) {
 	return Math.round(value / step) * step;
 }
@@ -22,21 +25,21 @@ function normalizePackUnit(unit) {
 	}
 }
 
+// Robust: findOne by ObjectId or string
+function idQuery(id) {
+	try {
+		return { $or: [{ _id: new ObjectId(String(id)) }, { _id: String(id) }] };
+	} catch {
+		return { _id: String(id) };
+	}
+}
+
 export async function load({ params }) {
 	const db = await getDb();
 
-	let _id;
-	try {
-		_id = new ObjectId(params.id);
-	} catch {
-		throw error(400, 'Ungültige Produkt-ID');
-	}
-
-	const doc = await db.collection('products').findOne({ _id });
+	const doc = await db.collection('products').findOne(idQuery(params.id));
 	if (!doc) throw error(404, 'Produkt nicht gefunden');
 
-	// Wir zeigen in der UI weiterhin "Stückzahlen" pro Variante an.
-	// Für Pack-Produkte leiten wir Stückzahl aus remainingAmount ab (ceil).
 	const packUnit = doc.packUnit ?? null;
 	const packSize = doc.packSize ?? null;
 
@@ -46,12 +49,11 @@ export async function load({ params }) {
 			const pieces = amt <= 0 ? 0 : Math.ceil(amt / packSize);
 			return {
 				id: index + 1,
-				quantity: pieces, // UI Feld: Stück/Packungen
+				quantity: pieces,
 				expirationDate: v.expirationDate ?? '',
 				status: v.status ?? 'ok'
 			};
 		}
-
 		return {
 			id: index + 1,
 			quantity: Number(v.piecesRemaining || 0),
@@ -62,18 +64,13 @@ export async function load({ params }) {
 
 	return {
 		product: {
-			id: params.id,
+			id: doc._id.toString(),
 			name: doc.name,
 			icon: doc.icon ?? '🥕',
-
-			// Anzeige: wie zuvor
 			unit: doc.displayUnit ?? 'Stück',
 			storageLocation: doc.storageLocation ?? 'Kühlschrank',
 			pricePerUnit: doc.pricePerUnit ?? 0,
-
-			// Stückgröße im UI
 			amountPerUnit: doc.amountPerUnitDisplay ?? 0,
-
 			variants
 		}
 	};
@@ -85,7 +82,6 @@ export const actions = {
 
 		const name = formData.get('name');
 		const icon = formData.get('icon') || '🥕';
-
 		const displayUnit = formData.get('unit') || 'Stück';
 		const storageLocation = formData.get('storageLocation');
 
@@ -98,6 +94,24 @@ export const actions = {
 			return fail(400, { message: 'Pflichtfelder fehlen.' });
 		}
 
+		const db = await getDb();
+
+		const { packUnit } = normalizePackUnit(displayUnit);
+
+if (!packUnit) {
+	amountPerUnitDisplay = 1;
+}
+
+
+
+
+		// altes Produkt holen (robust)
+		const oldDoc = await db.collection('products').findOne(idQuery(params.id));
+		if (!oldDoc) return fail(404, { message: 'Produkt nicht gefunden' });
+
+		const selector = { _id: oldDoc._id };
+		const canonicalProductId = oldDoc._id?.toString?.() ?? String(params.id);
+
 		const { packUnit, factorToBase } = normalizePackUnit(displayUnit);
 		const packSize = packUnit ? amountPerUnitDisplay * factorToBase : null;
 
@@ -108,8 +122,6 @@ export const actions = {
 			return fail(400, { message: 'Mindestens eine Variante wird benötigt.' });
 		}
 
-		// Beim Speichern schreiben wir wieder ins neue Modell:
-		// quantity aus UI ist Stück/Packungen
 		const variants = quantities.map((q, i) => {
 			const pieces = Number(q) || 0;
 
@@ -134,42 +146,46 @@ export const actions = {
 					if (!packSize || amt <= 0) return sum;
 					return sum + Math.ceil(amt / packSize);
 			  }, 0)
-			: variants.reduce((sum, v) => sum + (Number(v.piecesRemaining || 0)), 0);
+			: variants.reduce((sum, v) => sum + Number(v.piecesRemaining || 0), 0);
 
 		const normalizedName = name.trim().toLowerCase();
-		const db = await getDb();
 
-		let _id;
-		try {
-			_id = new ObjectId(params.id);
-		} catch {
-			return fail(400, { message: 'Ungültige Produkt-ID' });
+		// ✅ Delta => purchased
+		const oldTotal = Number(oldDoc.totalQuantity || 0);
+		const newTotal = Number(totalQuantity || 0);
+		const delta = newTotal - oldTotal;
+
+		if (delta > 0) {
+			await db.collection('productEvents').insertOne({
+				productId: canonicalProductId,
+				normalizedName,
+				name,
+				type: 'purchased',
+				unit: 'Stück',
+				quantity: delta,
+				value: delta * pricePerUnit,
+				createdAt: new Date()
+			});
 		}
 
-		await db.collection('products').updateOne(
-			{ _id },
-			{
-				$set: {
-					normalizedName,
-					name,
-					icon,
-					storageLocation,
-
-					pricePerUnit,
-
-					packUnit,
-					packSize,
-					displayUnit,
-					amountPerUnitDisplay,
-
-					variants,
-					totalQuantity,
-					updatedAt: new Date()
-				}
+		await db.collection('products').updateOne(selector, {
+			$set: {
+				normalizedName,
+				name,
+				icon,
+				storageLocation,
+				pricePerUnit,
+				packUnit,
+				packSize,
+				displayUnit,
+				amountPerUnitDisplay,
+				variants,
+				totalQuantity,
+				updatedAt: new Date()
 			}
-		);
+		});
 
-		// Template mitziehen
+		// Template mitziehen (wie bei dir)
 		await db.collection('productTemplates').updateOne(
 			{ normalizedName },
 			{
@@ -177,12 +193,10 @@ export const actions = {
 					name,
 					normalizedName,
 					icon,
-
 					displayUnit,
 					amountPerUnitDisplay,
 					packUnit,
 					packSize,
-
 					defaultStorageLocation: storageLocation,
 					defaultPricePerUnit: pricePerUnit,
 					updatedAt: new Date()

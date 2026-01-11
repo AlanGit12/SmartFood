@@ -1,60 +1,40 @@
 <script>
+
+	import { formatDate, getVariantStatus } from '$lib/utils/date.js'; 
+
+	
 	export let id;
 
 	export let name = 'Produktname';
 	export let icon = '🥕';
 
-	// totalQuantity kommt vom Server: Summe Stück (berechnet)
 	export let totalQuantity = 0;
-
-	// Preis pro Stück/Packung
 	export let pricePerUnit = 0;
 	export let currency = 'CHF';
 
 	export let variants = [];
 	export let storageLocation = 'Kühlschrank';
 
-	// Pack-Infos: null, wenn echtes Stück-Produkt
 	export let packUnit = null; // 'g' | 'ml' | null
 	export let packSize = null; // number | null
 
-	// ✅ user setting vom Inventar
 	export let soonThresholdDays = 3;
+	$: soonThresholdDaysNum = Math.min(30, Math.max(1, Number(soonThresholdDays) || 3));
 
-	$: isPackProduct = Boolean(packUnit && packSize && packSize > 0);
-	$: totalPrice = (pricePerUnit || 0) * (totalQuantity || 0);
+	$: isPackProduct = Boolean(packUnit && packSize && Number(packSize) > 0);
+	$: totalPrice = (Number(pricePerUnit) || 0) * (Number(totalQuantity) || 0);
 
-	function formatDate(dateStr) {
-		if (!dateStr) return '-';
-		const parts = dateStr.split('-');
-		if (parts.length !== 3) return dateStr;
-		const [year, month, day] = parts;
-		return `${day}.${month}.${year}`;
-	}
+
 
 	function piecesFromRemaining(remainingAmount) {
 		if (!isPackProduct) return 0;
 		const amt = Number(remainingAmount || 0);
 		if (amt <= 0) return 0;
-		return Math.ceil(amt / packSize);
+		return Math.ceil(amt / Number(packSize));
 	}
 
-	// ✅ Farblogik clientseitig
-	function getVariantStatus(expirationDate) {
-		if (!expirationDate) return 'ok';
 
-		const today = new Date();
-		today.setHours(0, 0, 0, 0);
 
-		const exp = new Date(expirationDate);
-		exp.setHours(0, 0, 0, 0);
-
-		const diffDays = (exp - today) / (1000 * 60 * 60 * 24);
-
-		if (diffDays < 0) return 'expired';
-		if (diffDays <= soonThresholdDays) return 'soon';
-		return 'ok';
-	}
 </script>
 
 <article class="card">
@@ -75,15 +55,17 @@
 	</header>
 
 	<section class="variants">
-		{#each variants as variant, index (variant.expirationDate + '-' + index)}
-			<div class="variant-row" data-status={getVariantStatus(variant.expirationDate)}>
+		{#each variants as variant, index (String(variant.expirationDate) + '-' + index)}
+	{@const status = getVariantStatus(variant.expirationDate, soonThresholdDaysNum)}
+
+			<div class="variant-row" class:soon={status === 'soon'} class:expired={status === 'expired'}>
 				<div class="meta">
 					<p class="label">Ablauf: {formatDate(variant.expirationDate)}</p>
 
 					{#if isPackProduct}
-						<p class="sub">Bestand: {variant.remainingAmount}{packUnit}</p>
+						<p class="sub">Bestand: {Number(variant.remainingAmount || 0)}{packUnit}</p>
 					{:else}
-						<p class="sub">Bestand: {variant.piecesRemaining} Stück</p>
+						<p class="sub">Bestand: {Number(variant.piecesRemaining || 0)} Stück</p>
 					{/if}
 				</div>
 
@@ -99,11 +81,11 @@
 							-
 						</button>
 
-						<span class="qty" title="Aktueller Bestand (als Stück)">
+						<span class="qty" title="Bestand in Stück">
 							{#if isPackProduct}
 								{piecesFromRemaining(variant.remainingAmount)}
 							{:else}
-								{variant.piecesRemaining}
+								{Number(variant.piecesRemaining || 0)}
 							{/if}
 						</span>
 
@@ -164,8 +146,7 @@
 		<div class="info">
 			<p class="storage">📍 {storageLocation}</p>
 			<p class="unit-price">💸 {Number(pricePerUnit || 0).toFixed(2)} {currency} / Stück</p>
-<p class="total-price">🧾 Gesamt: {Number(totalPrice || 0).toFixed(2)} {currency}</p>
-
+			<p class="total-price">🧾 Gesamt: {Number(totalPrice || 0).toFixed(2)} {currency}</p>
 		</div>
 
 		<div class="actions stacked">
@@ -197,7 +178,6 @@
 </article>
 
 <style>
-	/* ===== Card Layout ===== */
 	.card {
 		background: white;
 		border-radius: 1rem;
@@ -242,7 +222,6 @@
 		font-size: 0.9rem;
 	}
 
-	/* ===== Variants ===== */
 	.variants {
 		display: flex;
 		flex-direction: column;
@@ -261,14 +240,13 @@
 		border: 1px solid transparent;
 	}
 
-	/* 🟠 bald ablaufend */
-	.variant-row[data-status='soon'] {
+	/* ✅ Färbung zuverlässig über Klassen */
+	.variant-row.soon {
 		border-color: #fb923c;
 		background: #fff7ed;
 	}
 
-	/* 🔴 abgelaufen */
-	.variant-row[data-status='expired'] {
+	.variant-row.expired {
 		border-color: #ef4444;
 		background: #fef2f2;
 	}
@@ -336,7 +314,6 @@
 		justify-content: center;
 	}
 
-	/* ===== Custom ===== */
 	.custom {
 		display: grid;
 		grid-template-columns: 1fr auto auto;
@@ -367,13 +344,11 @@
 		font-size: 0.85rem;
 	}
 
-	/* ===== Footer as Grid ===== */
 	.card-footer {
 		display: grid;
 		grid-template-columns: 1fr 170px;
 		gap: 1rem;
 		align-items: start;
-
 		border-top: 1px solid #e5e7eb;
 		padding-top: 0.85rem;
 	}

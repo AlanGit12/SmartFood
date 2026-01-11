@@ -18,6 +18,12 @@
 
 	let nextId = variants.length + 1;
 
+	// Einheit-Logik: Stück => immer 1
+$: if (unit === 'Stück') {
+	amountPerUnit = 1;
+}
+
+
 	function addVariantRow() {
 		variants = [
 			...variants,

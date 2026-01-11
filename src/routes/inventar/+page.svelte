@@ -3,6 +3,7 @@
 	import { browser } from '$app/environment';
 	import ProductCard from '$lib/components/ProductCard.svelte';
 	import SummaryCard from '$lib/components/SummaryCard.svelte';
+import { MS_PER_DAY, utcToday, toUtcDay, getEarliestExpirationUtc } from '$lib/utils/date.js';
 
 	export let data;
 	const { products } = data;
@@ -22,41 +23,52 @@
 	let expiryFilter = 'all';
 	let groupByLocation = false;
 
-	// ✅ user-einstellbare Schwelle "bald ablaufend"
+	// =========================================================
+	// ✅ "Bald ablaufend" Schwelle (persistiert)
+	// =========================================================
+	const STORAGE_KEY = 'soonThresholdDays';
 	let soonThresholdDays = 3;
+	$: soonThresholdDaysNum = Math.min(30, Math.max(1, Number(soonThresholdDays) || 3));
 
 	onMount(() => {
 		if (!browser) return;
-		const saved = Number(localStorage.getItem('soonThresholdDays'));
-		if (!Number.isNaN(saved) && saved > 0) soonThresholdDays = saved;
+
+		const raw = localStorage.getItem(STORAGE_KEY);
+		const saved = Number(raw);
+
+		if (Number.isFinite(saved) && saved >= 1 && saved <= 30) {
+			soonThresholdDays = saved;
+		} else {
+			soonThresholdDays = 3;
+			localStorage.setItem(STORAGE_KEY, '3');
+		}
 	});
 
-	$: if (browser) {
-		localStorage.setItem('soonThresholdDays', String(soonThresholdDays));
+	function onSoonThresholdInput(e) {
+		const v = Number(e.currentTarget.value);
+		const next = Number.isFinite(v) ? Math.min(30, Math.max(1, v)) : 3;
+		soonThresholdDays = next;
+
+		if (browser) localStorage.setItem(STORAGE_KEY, String(next));
 	}
 
-	// ---------- Helper ----------
+	// =========================================================
+	// Helper: Wert
+	// =========================================================
 	function productTotalValue(p) {
-		return (p.totalQuantity || 0) * (p.pricePerUnit || 0);
+		return (Number(p.totalQuantity) || 0) * (Number(p.pricePerUnit) || 0);
 	}
 
-	function parseDate(dateStr) {
-		if (!dateStr) return null;
-		const parts = dateStr.split('-');
-		if (parts.length !== 3) return null;
-		const [y, m, d] = parts.map(Number);
-		return new Date(y, m - 1, d);
-	}
+	// =========================================================
+	// ✅ Datum robust → UTC-Day
+	// =========================================================
 
-	function getEarliestExpiration(product) {
-		if (!product.variants || product.variants.length === 0) return null;
-		const dates = product.variants
-			.map((v) => parseDate(v.expirationDate))
-			.filter((d) => d instanceof Date && !isNaN(d));
-		if (dates.length === 0) return null;
-		return dates.reduce((min, d) => (d < min ? d : min), dates[0]);
-	}
+	
 
+
+	// =========================================================
+	// Filter
+	// =========================================================
 	function matchesPrice(p) {
 		const value = productTotalValue(p);
 
@@ -70,22 +82,22 @@
 	function matchesExpiry(p) {
 		if (expiryFilter === 'all') return true;
 
-		const earliest = getEarliestExpiration(p);
-		if (!earliest) return true;
+		const earliestUtc = getEarliestExpirationUtc(p);
+		if (earliestUtc === null) return true;
 
-		const today = new Date();
-		today.setHours(0, 0, 0, 0);
-
-		const diffDays = (earliest - today) / (1000 * 60 * 60 * 24);
+		const todayUtc = utcToday();
+		const diffDays = (earliestUtc - todayUtc) / MS_PER_DAY;
 
 		if (expiryFilter === 'expired') return diffDays < 0;
-		if (expiryFilter === 'soon') return diffDays >= 0 && diffDays <= soonThresholdDays;
-		if (expiryFilter === 'later') return diffDays > soonThresholdDays;
+		if (expiryFilter === 'soon') return diffDays >= 0 && diffDays <= soonThresholdDaysNum;
+		if (expiryFilter === 'later') return diffDays > soonThresholdDaysNum;
 		return true;
 	}
 
-	// ---------- 1) Filtern ----------
-	$: filteredProducts = products.filter((product) => {
+	// =========================================================
+	// 1) Filtern
+	// =========================================================
+	$: filteredProducts = (products ?? []).filter((product) => {
 		const matchesSearch =
 			!searchTerm || product.name.toLowerCase().includes(searchTerm.toLowerCase());
 
@@ -95,38 +107,41 @@
 		return matchesSearch && matchesStorage && matchesPrice(product) && matchesExpiry(product);
 	});
 
-	// ---------- 2) Sortieren (nur allAsc/allDesc) ----------
+	// =========================================================
+	// 2) Sortieren (nur allAsc/allDesc)
+	// =========================================================
 	$: displayedProducts = [...filteredProducts].sort((a, b) => {
 		if (priceFilter === 'allAsc') return productTotalValue(a) - productTotalValue(b);
 		if (priceFilter === 'allDesc') return productTotalValue(b) - productTotalValue(a);
 		return 0;
 	});
 
-	// ---------- KPIs ----------
+	// =========================================================
+	// KPIs
+	// =========================================================
 	$: totalProducts = displayedProducts.length;
 
 	$: expiringSoon = (() => {
-		const today = new Date();
-		today.setHours(0, 0, 0, 0);
-
+		const todayUtc = utcToday();
 		let sum = 0;
 
 		for (const p of displayedProducts) {
-			for (const v of (p.variants ?? [])) {
-				const exp = parseDate(v.expirationDate);
-				if (!exp) continue;
-				exp.setHours(0, 0, 0, 0);
+			for (const v of p.variants ?? []) {
+				const expUtc = toUtcDay(v.expirationDate);
+				if (expUtc === null) continue;
 
-				const diffDays = (exp - today) / (1000 * 60 * 60 * 24);
-				if (diffDays >= 0 && diffDays <= soonThresholdDays) sum += 1; // zählt Varianten
+				const diffDays = (expUtc - todayUtc) / MS_PER_DAY;
+				if (diffDays >= 0 && diffDays <= soonThresholdDaysNum) sum += 1; // zählt Varianten
 			}
 		}
 		return sum;
 	})();
 
-	$: totalValue = displayedProducts.reduce((sum, product) => sum + productTotalValue(product), 0);
+	$: totalValue = displayedProducts.reduce((sum, p) => sum + productTotalValue(p), 0);
 
-	// ---------- Gruppierung ----------
+	// =========================================================
+	// 3) Gruppieren
+	// =========================================================
 	const storageOrder = ['Kühlschrank', 'Vorratsschrank', 'Tiefkühler'];
 
 	$: groupedProducts = (() => {
@@ -153,6 +168,24 @@
 
 		return entries;
 	})();
+
+
+	function onSelectTemplate(t) {
+	// bewusst gewählt → alles übernehmen
+	touched = {
+		icon: false,
+		unit: false,
+		amountPerUnit: false,
+		storageLocation: false,
+		pricePerUnit: false
+	};
+
+	// ✅ Name bei expliziter Auswahl übernehmen
+	name = t.name || name;
+
+	applyTemplate(t, { onlyIfUntouched: false });
+}
+
 </script>
 
 <section class="inventar-header">
@@ -202,39 +235,18 @@
 			Produkt hinzufügen
 		</a>
 
-		<!-- ✅ compact: bleibt in der Toolbar und zerschießt nichts -->
 		<div class="soon-setting">
 			<span>Bald ablaufend ab</span>
-			<input type="number" min="1" max="30" bind:value={soonThresholdDays} />
+			<input type="number" min="1" max="30" value={soonThresholdDaysNum} on:input={onSoonThresholdInput} />
 			<span>Tagen</span>
 		</div>
 	</div>
 </section>
 
 <section class="kpi-row">
-	<SummaryCard
-		title="Anzahl Produkte"
-		value={totalProducts}
-		subtitle="verschiedene Artikel im Inventar"
-		icon="📦"
-		variant="default"
-	/>
-
-	<SummaryCard
-		title="Bald ablaufend"
-		value={expiringSoon}
-		subtitle="Varianten innerhalb der Schwelle"
-		icon="🟠"
-		variant="warning"
-	/>
-
-	<SummaryCard
-		title="Wert der Produkte"
-		value={`${totalValue.toFixed(2)} CHF`}
-		subtitle="geschätzter Gesamtwert"
-		icon="💶"
-		variant="money"
-	/>
+	<SummaryCard title="Anzahl Produkte" value={totalProducts} subtitle="verschiedene Artikel im Inventar" icon="📦" variant="default" />
+	<SummaryCard title="Bald ablaufend" value={expiringSoon} subtitle="Varianten innerhalb der Schwelle" icon="🟠" variant="warning" />
+	<SummaryCard title="Wert der Produkte" value={`${totalValue.toFixed(2)} CHF`} subtitle="geschätzter Gesamtwert" icon="💶" variant="money" />
 </section>
 
 {#if groupByLocation}
@@ -257,7 +269,7 @@
 							pricePerUnit={product.pricePerUnit}
 							packUnit={product.packUnit}
 							packSize={product.packSize}
-							soonThresholdDays={soonThresholdDays}
+							soonThresholdDays={soonThresholdDaysNum}
 						/>
 					</form>
 				{/each}
@@ -282,7 +294,7 @@
 						pricePerUnit={product.pricePerUnit}
 						packUnit={product.packUnit}
 						packSize={product.packSize}
-						soonThresholdDays={soonThresholdDays}
+						soonThresholdDays={soonThresholdDaysNum}
 					/>
 				</form>
 			{/each}
@@ -360,7 +372,6 @@
 		font-weight: 500;
 		font-size: 0.95rem;
 		box-shadow: 0 1px 4px rgba(22, 163, 74, 0.35);
-		transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
 		white-space: nowrap;
 	}
 
@@ -368,7 +379,6 @@
 		font-size: 1.2rem;
 	}
 
-	/* ✅ kompakt & inline in toolbar */
 	.soon-setting {
 		display: inline-flex;
 		align-items: center;
