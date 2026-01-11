@@ -40,8 +40,6 @@ export async function load({ params }) {
 	const doc = await db.collection('products').findOne(idQuery(params.id));
 	if (!doc) throw error(404, 'Produkt nicht gefunden');
 
-	const packUnit = doc.packUnit ?? null;
-	const packSize = doc.packSize ?? null;
 
 	const variants = (doc.variants ?? []).map((v, index) => {
 		if (packUnit && packSize) {
@@ -67,10 +65,10 @@ export async function load({ params }) {
 			id: doc._id.toString(),
 			name: doc.name,
 			icon: doc.icon ?? '🥕',
-			unit: doc.displayUnit ?? 'Stück',
-			storageLocation: doc.storageLocation ?? 'Kühlschrank',
+unit: displayUnit,			
+storageLocation: doc.storageLocation ?? 'Kühlschrank',
 			pricePerUnit: doc.pricePerUnit ?? 0,
-			amountPerUnit: doc.amountPerUnitDisplay ?? 0,
+amountPerUnit: amountPerUnitDisplay,
 			variants
 		}
 	};
@@ -88,19 +86,13 @@ export const actions = {
 		const rawPrice = parseFloat(formData.get('pricePerUnit') || '0');
 		const pricePerUnit = roundToStep(rawPrice, 0.05);
 
-		const amountPerUnitDisplay = parseFloat(formData.get('amountPerUnit') || '0');
+let amountPerUnitDisplay = parseFloat(formData.get('amountPerUnit') || '0');
 
 		if (!name || !displayUnit || !storageLocation) {
 			return fail(400, { message: 'Pflichtfelder fehlen.' });
 		}
 
 		const db = await getDb();
-
-		const { packUnit } = normalizePackUnit(displayUnit);
-
-if (!packUnit) {
-	amountPerUnitDisplay = 1;
-}
 
 
 
@@ -113,7 +105,13 @@ if (!packUnit) {
 		const canonicalProductId = oldDoc._id?.toString?.() ?? String(params.id);
 
 		const { packUnit, factorToBase } = normalizePackUnit(displayUnit);
-		const packSize = packUnit ? amountPerUnitDisplay * factorToBase : null;
+
+if (!packUnit) {
+	amountPerUnitDisplay = 1;
+}
+
+const packSize = packUnit ? amountPerUnitDisplay * factorToBase : null;
+
 
 		const quantities = formData.getAll('variant_quantity');
 		const expirations = formData.getAll('variant_expirationDate');
