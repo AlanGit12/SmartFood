@@ -3,17 +3,21 @@
 	import { browser } from '$app/environment';
 	import ProductCard from '$lib/components/ProductCard.svelte';
 	import SummaryCard from '$lib/components/SummaryCard.svelte';
-	import { MS_PER_DAY, utcToday, toUtcDay, getEarliestExpirationUtc } from '$lib/utils/date.js';
+	import { utcToday, toUtcDay, getEarliestExpirationUtc, MS_PER_DAY } from '$lib/utils/date.js';
 
 	export let data;
 	const { products = [], locations = [] } = data;
 
+	// ✅ Nur noch Sortierung
+	// 'asc' | 'desc'
+	let expiryFilter = 'asc';
+
 	let searchTerm = '';
 	let storageFilter = 'all';
 	let priceFilter = 'all';
-	let expiryFilter = 'all';
 	let groupByLocation = false;
 
+	// (bleibt drin, weil du "Bald ablaufend" KPI weiterhin anzeigen willst)
 	const STORAGE_KEY = 'soonThresholdDays';
 	let soonThresholdDays = 3;
 	$: soonThresholdDaysNum = Math.min(30, Math.max(1, Number(soonThresholdDays) || 3));
@@ -50,35 +54,33 @@
 		return true;
 	}
 
-	function matchesExpiry(p) {
-		if (expiryFilter === 'all') return true;
-
-		const earliestUtc = getEarliestExpirationUtc(p);
-		if (earliestUtc === null) return true;
-
-		const todayUtc = utcToday();
-		const diffDays = (earliestUtc - todayUtc) / MS_PER_DAY;
-
-		if (expiryFilter === 'expired') return diffDays < 0;
-		if (expiryFilter === 'soon') return diffDays >= 0 && diffDays <= soonThresholdDaysNum;
-		if (expiryFilter === 'later') return diffDays > soonThresholdDaysNum;
-		return true;
-	}
-
 	$: filteredProducts = (products ?? []).filter((product) => {
 		const matchesSearch = !searchTerm || product.name.toLowerCase().includes(searchTerm.toLowerCase());
 		const matchesStorage = storageFilter === 'all' || product.storageLocation === storageFilter;
-		return matchesSearch && matchesStorage && matchesPrice(product) && matchesExpiry(product);
+		return matchesSearch && matchesStorage && matchesPrice(product);
 	});
 
+	// ✅ Sortierung nach frühestem Ablaufdatum (pro Produkt)
+	function expirySortKey(p) {
+		const earliestUtc = getEarliestExpirationUtc(p);
+		return earliestUtc === null ? Number.POSITIVE_INFINITY : earliestUtc;
+	}
+
 	$: displayedProducts = [...filteredProducts].sort((a, b) => {
+		// Preis sortieren (wie bisher)
 		if (priceFilter === 'allAsc') return productTotalValue(a) - productTotalValue(b);
 		if (priceFilter === 'allDesc') return productTotalValue(b) - productTotalValue(a);
+
+		// Ablaufdatum sortieren (nur asc/desc)
+		if (expiryFilter === 'asc') return expirySortKey(a) - expirySortKey(b);
+		if (expiryFilter === 'desc') return expirySortKey(b) - expirySortKey(a);
+
 		return 0;
 	});
 
 	$: totalProducts = displayedProducts.length;
 
+	// KPI "Bald ablaufend" (Varianten zählen)
 	$: expiringSoon = (() => {
 		const todayUtc = utcToday();
 		let sum = 0;
@@ -120,7 +122,6 @@
 	})();
 </script>
 
-
 <section class="inventar-header">
 	<div class="title-block">
 		<h1>Inventar</h1>
@@ -128,20 +129,14 @@
 	</div>
 
 	<div class="toolbar">
-		<input
-			type="search"
-			class="search-input"
-			placeholder="Produkt suchen..."
-			bind:value={searchTerm}
-		/>
+		<input type="search" class="search-input" placeholder="Produkt suchen..." bind:value={searchTerm} />
 
 		<select class="filter-select" bind:value={storageFilter} aria-label="Nach Aufbewahrungsort filtern">
-	<option value="all">Alle Orte</option>
-	{#each locations as loc (loc.id)}
-		<option value={loc.name}>{loc.name}</option>
-	{/each}
-</select>
-
+			<option value="all">Alle Orte</option>
+			{#each locations as loc (loc.id)}
+				<option value={loc.name}>{loc.name}</option>
+			{/each}
+		</select>
 
 		<select class="filter-select" bind:value={priceFilter} aria-label="Nach Preis filtern">
 			<option value="all">Alle Preise</option>
@@ -152,11 +147,10 @@
 			<option value="high">&gt; 20 CHF</option>
 		</select>
 
-		<select class="filter-select" bind:value={expiryFilter} aria-label="Nach Ablaufdatum filtern">
-			<option value="all">Alle Ablaufdaten</option>
-			<option value="expired">Bereits abgelaufen</option>
-			<option value="soon">Läuft bald ab</option>
-			<option value="later">Läuft später ab</option>
+		<!-- ✅ nur noch 2 Optionen -->
+		<select class="filter-select" bind:value={expiryFilter} aria-label="Nach Ablaufdatum sortieren">
+			<option value="asc">Ablaufdatum ↑ (bald zuerst)</option>
+			<option value="desc">Ablaufdatum ↓ (spät zuerst)</option>
 		</select>
 
 		<label class="group-toggle">
